@@ -315,36 +315,16 @@
     .install-section {
       padding: 60px 0 100px;
     }
-    .tabs {
-      display: flex;
-      justify-content: center;
-      gap: 12px;
-      margin-bottom: 30px;
-    }
-    .tab-btn {
-      padding: 10px 20px;
-      border-radius: 8px;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid var(--glass-border);
-      color: var(--text-muted);
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .tab-btn.active {
-      background: rgba(0, 242, 254, 0.15);
-      color: var(--accent-cyan);
-      border-color: rgba(0, 242, 254, 0.4);
-    }
     .code-box {
       background: #0d131f;
-      border: 1px solid var(--glass-border);
+      border: 1px solid var(--border-glow);
       border-radius: 12px;
       padding: 24px;
       font-family: 'Fira Code', monospace;
       position: relative;
       max-width: 850px;
       margin: 0 auto;
+      box-shadow: 0 10px 30px rgba(0, 242, 254, 0.1);
     }
     .code-line {
       display: flex;
@@ -360,12 +340,13 @@
       border-bottom: none;
     }
     .copy-btn {
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid var(--glass-border);
-      color: var(--text-muted);
-      padding: 6px 12px;
+      background: rgba(0, 242, 254, 0.15);
+      border: 1px solid rgba(0, 242, 254, 0.3);
+      color: var(--accent-cyan);
+      padding: 8px 16px;
       border-radius: 6px;
-      font-size: 0.8rem;
+      font-size: 0.85rem;
+      font-weight: 600;
       cursor: pointer;
       transition: all 0.2s;
     }
@@ -423,19 +404,19 @@
         <li><a href="#features">Features</a></li>
         <li><a href="#install">Install</a></li>
         <li><a href="#prereqs">Prerequisites</a></li>
-        <li><a href="https://github.com/JOJINJOHN/fetchdesk" target="_blank">GitHub</a></li>
+        <li><a href="https://github.com/jojin1709/fetchdesk" target="_blank">GitHub</a></li>
       </ul>
     </nav>
 
     <!-- Hero Section -->
     <section class="hero">
-      <div class="hero-tag">🚀 Built in Rust • Ultra-Fast CLI Manager</div>
+      <div class="hero-tag">🚀 Built in Rust • One-Line Instant PowerShell Setup</div>
       <h1>Next-Gen Multi-Connection<br><span>Download Accelerator</span></h1>
       <p>Stream direct files with 16 parallel connections, extract YouTube videos in 4K/720p, and manage BitTorrent magnets with automatic drive space switching.</p>
       
       <div class="hero-actions">
-        <a href="#install" class="btn btn-primary">⚡ Quick Start</a>
-        <a href="https://github.com/JOJINJOHN/fetchdesk" target="_blank" class="btn btn-secondary">⭐ Star on GitHub</a>
+        <a href="#install" class="btn btn-primary">⚡ 1-Line PowerShell Install</a>
+        <a href="https://github.com/jojin1709/fetchdesk" target="_blank" class="btn btn-secondary">⭐ Star on GitHub</a>
       </div>
 
       <!-- Animated Terminal Preview -->
@@ -467,6 +448,25 @@
             <span>Speed: <span class="t-green">45.2 MiB/s</span></span>
             <span>ETA: <span class="t-yellow">01m 12s</span></span>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Installation Section -->
+    <section id="install" class="install-section">
+      <div class="section-title">
+        <h2>⚡ 1-Line Instant PowerShell Install</h2>
+        <p>No source code or Rust compilation required! Paste this single line in PowerShell:</p>
+      </div>
+
+      <div class="code-box">
+        <div class="code-line">
+          <span><span class="t-cyan">iwr -useb</span> https://raw.githubusercontent.com/jojin1709/fetchdesk/main/install.ps1 | <span class="t-green">iex</span></span>
+          <button class="copy-btn" onclick="copyText('iwr -useb https://raw.githubusercontent.com/jojin1709/fetchdesk/main/install.ps1 | iex')">Copy Command</button>
+        </div>
+        <div class="code-line">
+          <span><span class="t-cyan">irm</span> https://raw.githubusercontent.com/jojin1709/fetchdesk/main/install.ps1 | <span class="t-green">iex</span></span>
+          <button class="copy-btn" onclick="copyText('irm https://raw.githubusercontent.com/jojin1709/fetchdesk/main/install.ps1 | iex')">Copy Alternate</button>
         </div>
       </div>
     </section>
@@ -513,35 +513,6 @@
           <div class="card-icon">📜</div>
           <h3>History & CSV Export</h3>
           <p>Automatically records all downloads, elapsed timings, and paths. Export logs to escaped CSV anytime.</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- Installation Section -->
-    <section id="install" class="install-section">
-      <div class="section-title">
-        <h2>Get Started in Seconds</h2>
-        <p>Clone the repository and launch FetchDesk with Cargo.</p>
-      </div>
-
-      <div class="tabs">
-        <button class="tab-btn active" onclick="switchTab('win')">Windows</button>
-        <button class="tab-btn" onclick="switchTab('mac')">macOS</button>
-        <button class="tab-btn" onclick="switchTab('linux')">Linux</button>
-      </div>
-
-      <div class="code-box" id="cmd-box">
-        <div class="code-line">
-          <span><span class="t-cyan">git clone</span> https://github.com/JOJINJOHN/fetchdesk.git</span>
-          <button class="copy-btn" onclick="copyText('git clone https://github.com/JOJINJOHN/fetchdesk.git')">Copy</button>
-        </div>
-        <div class="code-line">
-          <span><span class="t-cyan">cd</span> fetchdesk-src</span>
-          <button class="copy-btn" onclick="copyText('cd fetchdesk-src')">Copy</button>
-        </div>
-        <div class="code-line">
-          <span><span class="t-cyan">cargo run</span></span>
-          <button class="copy-btn" onclick="copyText('cargo run')">Copy</button>
         </div>
       </div>
     </section>
@@ -593,59 +564,6 @@
     function copyText(text) {
       navigator.clipboard.writeText(text);
       alert('Copied to clipboard: ' + text);
-    }
-
-    function switchTab(os) {
-      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-      event.target.classList.add('active');
-
-      const box = document.getElementById('cmd-box');
-      if (os === 'win') {
-        box.innerHTML = `
-          <div class="code-line">
-            <span><span class="t-cyan">git clone</span> https://github.com/JOJINJOHN/fetchdesk.git</span>
-            <button class="copy-btn" onclick="copyText('git clone https://github.com/JOJINJOHN/fetchdesk.git')">Copy</button>
-          </div>
-          <div class="code-line">
-            <span><span class="t-cyan">cd</span> fetchdesk-src</span>
-            <button class="copy-btn" onclick="copyText('cd fetchdesk-src')">Copy</button>
-          </div>
-          <div class="code-line">
-            <span><span class="t-cyan">cargo run</span></span>
-            <button class="copy-btn" onclick="copyText('cargo run')">Copy</button>
-          </div>
-        `;
-      } else if (os === 'mac') {
-        box.innerHTML = `
-          <div class="code-line">
-            <span><span class="t-cyan">brew install</span> rust yt-dlp aria2 ffmpeg</span>
-            <button class="copy-btn" onclick="copyText('brew install rust yt-dlp aria2 ffmpeg')">Copy</button>
-          </div>
-          <div class="code-line">
-            <span><span class="t-cyan">git clone</span> https://github.com/JOJINJOHN/fetchdesk.git && cd fetchdesk-src</span>
-            <button class="copy-btn" onclick="copyText('git clone https://github.com/JOJINJOHN/fetchdesk.git && cd fetchdesk-src')">Copy</button>
-          </div>
-          <div class="code-line">
-            <span><span class="t-cyan">cargo run --release</span></span>
-            <button class="copy-btn" onclick="copyText('cargo run --release')">Copy</button>
-          </div>
-        `;
-      } else {
-        box.innerHTML = `
-          <div class="code-line">
-            <span><span class="t-cyan">sudo apt install</span> rustc cargo yt-dlp aria2 ffmpeg</span>
-            <button class="copy-btn" onclick="copyText('sudo apt install rustc cargo yt-dlp aria2 ffmpeg')">Copy</button>
-          </div>
-          <div class="code-line">
-            <span><span class="t-cyan">git clone</span> https://github.com/JOJINJOHN/fetchdesk.git && cd fetchdesk-src</span>
-            <button class="copy-btn" onclick="copyText('git clone https://github.com/JOJINJOHN/fetchdesk.git && cd fetchdesk-src')">Copy</button>
-          </div>
-          <div class="code-line">
-            <span><span class="t-cyan">cargo run --release</span></span>
-            <button class="copy-btn" onclick="copyText('cargo run --release')">Copy</button>
-          </div>
-        `;
-      }
     }
   </script>
 </body>

@@ -2,7 +2,23 @@
 
 > High-Performance Terminal-Based Multi-Connection Download Manager written in Rust.
 
-`FetchDesk` is a powerful, lightning-fast CLI download manager designed for power users, ethical security researchers, software engineers, and media enthusiasts. It accelerates HTTP/HTTPS downloads using parallel multi-chunk streaming, handles YouTube videos with quality selection, and manages BitTorrent/Magnet transfers with automated peer discovery.
+`FetchDesk` is a powerful, lightning-fast CLI download manager designed for power users, ethical security researchers, software engineers, and media enthusiasts. It accelerates HTTP/HTTPS downloads using parallel multi-chunk streaming, handles YouTube videos with quality selection, and manages BitTorrent/Magnet transfers with automated peer discovery and drive space inspection.
+
+---
+
+## ⚡ Instant 1-Line PowerShell Install (No Source Code Needed!)
+
+For end users on **Windows**, install and launch FetchDesk instantly without compiling or downloading source code:
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/jojin1709/fetchdesk/main/install.ps1 | iex
+```
+
+Or using `irm`:
+
+```powershell
+irm https://raw.githubusercontent.com/jojin1709/fetchdesk/main/install.ps1 | iex
+```
 
 ---
 
@@ -17,51 +33,15 @@
 
 ---
 
-## 🛠️ Prerequisites & Installation
+## 🛠️ Optional Helper Tools
 
-### Core Build Requirement
-Ensure you have **Rust** installed (`cargo` & `rustc` 1.70+):
-```bash
-# Install Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
+To unlock YouTube quality extraction and BitTorrent features, install these optional tools:
 
-### Optional External Dependencies
-
-To unlock full functionality (YouTube video extraction and BitTorrent downloads), install the following optional tools:
-
-| Component | Purpose | Installation (Windows) | Installation (macOS) | Installation (Linux) |
+| Component | Purpose | Windows Install | macOS Install | Linux Install |
 | :--- | :--- | :--- | :--- | :--- |
-| **`yt-dlp`** | YouTube Video & Playlist Extraction | `pip install -U yt-dlp` | `brew install yt-dlp` | `sudo apt install yt-dlp` |
+| **`yt-dlp`** | YouTube Video Extraction | `pip install -U yt-dlp` | `brew install yt-dlp` | `sudo apt install yt-dlp` |
 | **`aria2`** | BitTorrent / Magnet Engine | `winget install aria2.aria2` | `brew install aria2` | `sudo apt install aria2` |
-| **`ffmpeg`** | Video & Audio Format Merging | `winget install Gyan.FFmpeg` | `brew install ffmpeg` | `sudo apt install ffmpeg` |
-
-*Note: If `ffmpeg` is not installed, FetchDesk automatically selects pre-merged single-file formats (e.g. 720p MP4) so downloads complete cleanly without post-processing failures.*
-
----
-
-## 🚀 Building & Running
-
-### 1. Build from Source
-```powershell
-# Clone repository
-git clone https://github.com/JOJINJOHN/fetchdesk.git
-cd fetchdesk-src
-
-# Build release binary
-cargo build --release
-```
-
-Binary will be produced at `target/release/fetchdesk` (or `fetchdesk.exe` on Windows).
-
-### 2. Launch Interactive REPL
-```powershell
-cargo run
-```
-or run the binary directly:
-```powershell
-.\target\release\fetchdesk.exe
-```
+| **`ffmpeg`** | Video & Audio Stream Merging | `winget install Gyan.FFmpeg` | `brew install ffmpeg` | `sudo apt install ffmpeg` |
 
 ---
 
@@ -88,6 +68,7 @@ At the `fetchdesk>` interactive prompt:
 ```text
 fetchdesk-src/
 ├── Cargo.toml          # Rust dependencies & package configuration
+├── install.ps1         # One-liner PowerShell instant installer
 ├── src/
 │   ├── main.rs         # REPL prompt & CLI routing
 │   ├── downloader.rs   # Direct multi-chunk HTTP downloader engine
@@ -107,5 +88,3 @@ fetchdesk-src/
 ## ⚖️ License & Ethical Usage
 
 Distributed under the **MIT License**. Created by **JOJIN JOHN**.
-
-*Disclaimer: FetchDesk is designed for legitimate software distribution, open-source media download, and ethical security testing. Always verify you have authorization before downloading files.*
