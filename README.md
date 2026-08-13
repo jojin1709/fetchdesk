@@ -6,9 +6,9 @@
 
 ---
 
-## ⚡ Instant 1-Line PowerShell Install (No Source Code Needed!)
+## ⚡ Instant 1-Line PowerShell Install
 
-For end users on **Windows**, install and launch FetchDesk instantly without compiling or downloading source code:
+No source code, `git clone`, or Rust setup required! Paste this single command into PowerShell to install and launch FetchDesk:
 
 ```powershell
 iwr -useb https://raw.githubusercontent.com/jojin1709/fetchdesk/main/install.ps1 | iex
