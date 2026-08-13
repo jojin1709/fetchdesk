@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FetchDesk - Next-Gen CLI Download Manager</title>
+  <meta name="description" content="Terminal-based multi-connection download manager written in Rust with YouTube quality selector, BitTorrent engine, and automatic disk space drive switcher.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --bg-card: rgba(18, 24, 38, 0.7);
+      --bg-card-hover: rgba(26, 35, 56, 0.85);
+      --accent-cyan: #00f2fe;
+      --accent-blue: #4facfe;
+      --accent-purple: #9d50bb;
+      --accent-green: #00e676;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --border-glow: rgba(0, 242, 254, 0.25);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --radius: 14px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* Ambient Glow Effects */
+    .glow-orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(120px);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .glow-1 {
+      top: -100px;
+      left: 10%;
+      width: 450px;
+      height: 450px;
+      background: radial-gradient(circle, rgba(0, 242, 254, 0.18), transparent 70%);
+    }
+    .glow-2 {
+      top: 400px;
+      right: 5%;
+      width: 550px;
+      height: 550px;
+      background: radial-gradient(circle, rgba(157, 80, 187, 0.15), transparent 70%);
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Header */
+    nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 28px 0;
+      border-bottom: 1px solid var(--glass-border);
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 1.4rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .logo-badge {
+      font-size: 0.75rem;
+      padding: 3px 8px;
+      border-radius: 20px;
+      background: rgba(0, 242, 254, 0.15);
+      color: var(--accent-cyan);
+      border: 1px solid rgba(0, 242, 254, 0.3);
+    }
+    .nav-links {
+      display: flex;
+      gap: 24px;
+      list-style: none;
+    }
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 0.95rem;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover {
+      color: var(--accent-cyan);
+    }
+
+    /* Hero Section */
+    .hero {
+      text-align: center;
+      padding: 90px 0 60px;
+    }
+    .hero-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      border-radius: 30px;
+      background: rgba(79, 172, 254, 0.1);
+      border: 1px solid rgba(79, 172, 254, 0.25);
+      color: var(--accent-blue);
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 24px;
+    }
+    .hero h1 {
+      font-size: 3.8rem;
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -1px;
+      margin-bottom: 20px;
+    }
+    .hero h1 span {
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero p {
+      font-size: 1.2rem;
+      color: var(--text-muted);
+      max-width: 680px;
+      margin: 0 auto 40px;
+    }
+
+    .hero-actions {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+    }
+    .btn {
+      padding: 14px 28px;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 1rem;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: none;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+      color: #090d16;
+      box-shadow: 0 4px 25px rgba(0, 242, 254, 0.35);
+    }
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 35px rgba(0, 242, 254, 0.5);
+    }
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-main);
+      border: 1px solid var(--glass-border);
+      backdrop-filter: blur(10px);
+    }
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Animated Terminal Demo */
+    .terminal-container {
+      margin: 50px auto 90px;
+      max-width: 850px;
+      border-radius: 14px;
+      background: #0f1624;
+      border: 1px solid var(--border-glow);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(0, 242, 254, 0.15);
+      overflow: hidden;
+      text-align: left;
+    }
+    .terminal-header {
+      background: #182234;
+      padding: 12px 18px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--glass-border);
+    }
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+    .dot-red { background: #ff5f56; }
+    .dot-yellow { background: #ffbd2e; }
+    .dot-green { background: #27c93f; }
+    .terminal-title {
+      font-size: 0.82rem;
+      font-family: 'Fira Code', monospace;
+      color: var(--text-muted);
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .terminal-body {
+      padding: 24px;
+      font-family: 'Fira Code', monospace;
+      font-size: 0.9rem;
+      line-height: 1.7;
+      color: #e2e8f0;
+    }
+    .t-cyan { color: var(--accent-cyan); }
+    .t-green { color: var(--accent-green); }
+    .t-yellow { color: #f6e05e; }
+    .t-purple { color: #b794f4; }
+    .t-dim { color: #64748b; }
+
+    .progress-bar-wrap {
+      margin: 12px 0;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 6px;
+      padding: 8px 12px;
+      border: 1px solid rgba(0, 242, 254, 0.2);
+    }
+    .progress-fill {
+      height: 6px;
+      border-radius: 3px;
+      background: linear-gradient(90deg, var(--accent-cyan), var(--accent-green));
+      width: 68%;
+      animation: pulseBar 2s infinite alternate;
+    }
+    @keyframes pulseBar {
+      0% { width: 68%; }
+      100% { width: 85%; }
+    }
+
+    /* Features Grid */
+    .features-section {
+      padding: 60px 0 90px;
+    }
+    .section-title {
+      text-align: center;
+      margin-bottom: 50px;
+    }
+    .section-title h2 {
+      font-size: 2.4rem;
+      font-weight: 800;
+      margin-bottom: 12px;
+    }
+    .section-title p {
+      color: var(--text-muted);
+      font-size: 1.05rem;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 24px;
+    }
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius);
+      padding: 32px;
+      backdrop-filter: blur(12px);
+      transition: all 0.3s ease;
+    }
+    .card:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-glow);
+      transform: translateY(-4px);
+    }
+    .card-icon {
+      width: 52px;
+      height: 52px;
+      border-radius: 12px;
+      background: rgba(0, 242, 254, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      margin-bottom: 20px;
+      color: var(--accent-cyan);
+    }
+    .card h3 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+    .card p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+
+    /* Installation & Setup Tabs */
+    .install-section {
+      padding: 60px 0 100px;
+    }
+    .tabs {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 30px;
+    }
+    .tab-btn {
+      padding: 10px 20px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--glass-border);
+      color: var(--text-muted);
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .tab-btn.active {
+      background: rgba(0, 242, 254, 0.15);
+      color: var(--accent-cyan);
+      border-color: rgba(0, 242, 254, 0.4);
+    }
+    .code-box {
+      background: #0d131f;
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+      padding: 24px;
+      font-family: 'Fira Code', monospace;
+      position: relative;
+      max-width: 850px;
+      margin: 0 auto;
+    }
+    .code-line {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .code-line:last-child {
+      margin-bottom: 0;
+      padding-bottom: 0;
+      border-bottom: none;
+    }
+    .copy-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--glass-border);
+      color: var(--text-muted);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .copy-btn:hover {
+      background: var(--accent-cyan);
+      color: #090d16;
+    }
+
+    /* Dependencies Cards */
+    .dep-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+      margin-top: 30px;
+    }
+    .dep-card {
+      background: rgba(15, 22, 36, 0.8);
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .dep-card h4 {
+      font-size: 1.1rem;
+      color: var(--accent-cyan);
+      margin-bottom: 6px;
+    }
+    .dep-card p {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--glass-border);
+      padding: 40px 0;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="glow-orb glow-1"></div>
+  <div class="glow-orb glow-2"></div>
+
+  <div class="container">
+    <!-- Navbar -->
+    <nav>
+      <div class="logo">
+        ⚡ FetchDesk <span class="logo-badge">v0.2.0</span>
+      </div>
+      <ul class="nav-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#install">Install</a></li>
+        <li><a href="#prereqs">Prerequisites</a></li>
+        <li><a href="https://github.com/JOJINJOHN/fetchdesk" target="_blank">GitHub</a></li>
+      </ul>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+      <div class="hero-tag">🚀 Built in Rust • Ultra-Fast CLI Manager</div>
+      <h1>Next-Gen Multi-Connection<br><span>Download Accelerator</span></h1>
+      <p>Stream direct files with 16 parallel connections, extract YouTube videos in 4K/720p, and manage BitTorrent magnets with automatic drive space switching.</p>
+      
+      <div class="hero-actions">
+        <a href="#install" class="btn btn-primary">⚡ Quick Start</a>
+        <a href="https://github.com/JOJINJOHN/fetchdesk" target="_blank" class="btn btn-secondary">⭐ Star on GitHub</a>
+      </div>
+
+      <!-- Animated Terminal Preview -->
+      <div class="terminal-container">
+        <div class="terminal-header">
+          <div class="dot dot-red"></div>
+          <div class="dot dot-yellow"></div>
+          <div class="dot dot-green"></div>
+          <div class="terminal-title">fetchdesk.exe — 16 Connections Active</div>
+        </div>
+        <div class="terminal-body">
+          <div><span class="t-cyan">fetchdesk></span> d</div>
+          <div>  Paste direct file URL: https://releases.ubuntu.com/24.04.1/ubuntu-desktop.iso</div>
+          <div><span class="t-yellow">⚠ Insufficient space on C:\ (Available: 0.4 GB, Required: 5.8 GB)</span></div>
+          <br>
+          <div class="t-cyan">SELECT ALTERNATIVE DRIVE WITH AVAILABLE SPACE</div>
+          <div>  1 <span class="t-green">D:\</span> (58.6 GB free) <span class="t-yellow">✓ Recommended</span></div>
+          <div>  2 Enter custom path</div>
+          <br>
+          <div><span class="t-dim">Select drive (number):</span> 1</div>
+          <div><span class="t-green">✓ Output directory switched to: D:\Downloads</span></div>
+          <div>→ Downloading: ubuntu-desktop.iso (5.8 GB) using 16 connections</div>
+          
+          <div class="progress-bar-wrap">
+            <div class="progress-fill"></div>
+          </div>
+          <div style="display: flex; justify-content: space-between;" class="t-dim">
+            <span>Progress: <span class="t-cyan">78.4%</span></span>
+            <span>Speed: <span class="t-green">45.2 MiB/s</span></span>
+            <span>ETA: <span class="t-yellow">01m 12s</span></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features-section">
+      <div class="section-title">
+        <h2>Engineered for Unmatched Speed & Elegance</h2>
+        <p>Everything you need for seamless high-speed file transfers.</p>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <div class="card-icon">⚡</div>
+          <h3>16-Connection Parallel Engine</h3>
+          <p>Splits direct HTTP/HTTPS downloads into concurrent range-requested chunks for max ISP bandwidth saturation.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">🎥</div>
+          <h3>YouTube Video & Playlist</h3>
+          <p>Extract 4K, 1080p, 720p, or Audio-only formats with automatic 16-fragment concurrent downloading.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">🧲</div>
+          <h3>BitTorrent & Magnet Swarm</h3>
+          <p>Integrated magnet loader with DHT, Transmission peer-ID spoofing, and automatic high-speed tracker injection.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">💾</div>
+          <h3>Smart Disk Inspector</h3>
+          <p>Checks target drive space (`GetDiskFreeSpaceExW`). If C:\ is low on space, it automatically prompts you to switch to D:\.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">📊</div>
+          <h3>Sleek Animated UI</h3>
+          <p>No noisy screen clutter! Renders clean single-line progress bars with live speed, byte counts, and seeder metrics.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">📜</div>
+          <h3>History & CSV Export</h3>
+          <p>Automatically records all downloads, elapsed timings, and paths. Export logs to escaped CSV anytime.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Installation Section -->
+    <section id="install" class="install-section">
+      <div class="section-title">
+        <h2>Get Started in Seconds</h2>
+        <p>Clone the repository and launch FetchDesk with Cargo.</p>
+      </div>
+
+      <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('win')">Windows</button>
+        <button class="tab-btn" onclick="switchTab('mac')">macOS</button>
+        <button class="tab-btn" onclick="switchTab('linux')">Linux</button>
+      </div>
+
+      <div class="code-box" id="cmd-box">
+        <div class="code-line">
+          <span><span class="t-cyan">git clone</span> https://github.com/JOJINJOHN/fetchdesk.git</span>
+          <button class="copy-btn" onclick="copyText('git clone https://github.com/JOJINJOHN/fetchdesk.git')">Copy</button>
+        </div>
+        <div class="code-line">
+          <span><span class="t-cyan">cd</span> fetchdesk-src</span>
+          <button class="copy-btn" onclick="copyText('cd fetchdesk-src')">Copy</button>
+        </div>
+        <div class="code-line">
+          <span><span class="t-cyan">cargo run</span></span>
+          <button class="copy-btn" onclick="copyText('cargo run')">Copy</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Prerequisites & Component Downloads -->
+    <section id="prereqs" class="install-section">
+      <div class="section-title">
+        <h2>Optional Prerequisites</h2>
+        <p>Install helper tools to enable YouTube quality extraction and BitTorrent functionality.</p>
+      </div>
+
+      <div class="dep-grid">
+        <div class="dep-card">
+          <h4>yt-dlp (YouTube Engine)</h4>
+          <p>Extracts YouTube videos, formats, and playlists.</p>
+          <div class="code-line" style="margin-bottom:0;">
+            <code style="font-size:0.8rem;" class="t-green">pip install -U yt-dlp</code>
+            <button class="copy-btn" onclick="copyText('pip install -U yt-dlp')">Copy</button>
+          </div>
+        </div>
+
+        <div class="dep-card">
+          <h4>aria2 (BitTorrent Engine)</h4>
+          <p>Drives magnet links and torrent file transfers.</p>
+          <div class="code-line" style="margin-bottom:0;">
+            <code style="font-size:0.8rem;" class="t-green">winget install aria2.aria2</code>
+            <button class="copy-btn" onclick="copyText('winget install aria2.aria2')">Copy</button>
+          </div>
+        </div>
+
+        <div class="dep-card">
+          <h4>ffmpeg (Media Merger)</h4>
+          <p>Combines separate video and audio format streams.</p>
+          <div class="code-line" style="margin-bottom:0;">
+            <code style="font-size:0.8rem;" class="t-green">winget install Gyan.FFmpeg</code>
+            <button class="copy-btn" onclick="copyText('winget install Gyan.FFmpeg')">Copy</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+      <p>Developed with ❤️ by <strong>JOJIN JOHN</strong> • Released under MIT License</p>
+    </footer>
+  </div>
+
+  <script>
+    function copyText(text) {
+      navigator.clipboard.writeText(text);
+      alert('Copied to clipboard: ' + text);
+    }
+
+    function switchTab(os) {
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      event.target.classList.add('active');
+
+      const box = document.getElementById('cmd-box');
+      if (os === 'win') {
+        box.innerHTML = `
+          <div class="code-line">
+            <span><span class="t-cyan">git clone</span> https://github.com/JOJINJOHN/fetchdesk.git</span>
+            <button class="copy-btn" onclick="copyText('git clone https://github.com/JOJINJOHN/fetchdesk.git')">Copy</button>
+          </div>
+          <div class="code-line">
+            <span><span class="t-cyan">cd</span> fetchdesk-src</span>
+            <button class="copy-btn" onclick="copyText('cd fetchdesk-src')">Copy</button>
+          </div>
+          <div class="code-line">
+            <span><span class="t-cyan">cargo run</span></span>
+            <button class="copy-btn" onclick="copyText('cargo run')">Copy</button>
+          </div>
+        `;
+      } else if (os === 'mac') {
+        box.innerHTML = `
+          <div class="code-line">
+            <span><span class="t-cyan">brew install</span> rust yt-dlp aria2 ffmpeg</span>
+            <button class="copy-btn" onclick="copyText('brew install rust yt-dlp aria2 ffmpeg')">Copy</button>
+          </div>
+          <div class="code-line">
+            <span><span class="t-cyan">git clone</span> https://github.com/JOJINJOHN/fetchdesk.git && cd fetchdesk-src</span>
+            <button class="copy-btn" onclick="copyText('git clone https://github.com/JOJINJOHN/fetchdesk.git && cd fetchdesk-src')">Copy</button>
+          </div>
+          <div class="code-line">
+            <span><span class="t-cyan">cargo run --release</span></span>
+            <button class="copy-btn" onclick="copyText('cargo run --release')">Copy</button>
+          </div>
+        `;
+      } else {
+        box.innerHTML = `
+          <div class="code-line">
+            <span><span class="t-cyan">sudo apt install</span> rustc cargo yt-dlp aria2 ffmpeg</span>
+            <button class="copy-btn" onclick="copyText('sudo apt install rustc cargo yt-dlp aria2 ffmpeg')">Copy</button>
+          </div>
+          <div class="code-line">
+            <span><span class="t-cyan">git clone</span> https://github.com/JOJINJOHN/fetchdesk.git && cd fetchdesk-src</span>
+            <button class="copy-btn" onclick="copyText('git clone https://github.com/JOJINJOHN/fetchdesk.git && cd fetchdesk-src')">Copy</button>
+          </div>
+          <div class="code-line">
+            <span><span class="t-cyan">cargo run --release</span></span>
+            <button class="copy-btn" onclick="copyText('cargo run --release')">Copy</button>
+          </div>
+        `;
+      }
+    }
+  </script>
+</body>
+</html>
