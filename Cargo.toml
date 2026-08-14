@@ -4,7 +4,7 @@ version = "0.2.0"
 edition = "2021"
 authors = ["JOJIN JOHN"]
 description = "Terminal-based multi-connection download manager"
-license = "MIT"
+license = "Proprietary"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }

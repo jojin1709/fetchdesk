@@ -537,6 +537,17 @@ pub fn which(bin: &str) -> Option<PathBuf> {
         vec![""]
     };
 
+    // Check local FetchDesk bin directory first
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        let fetch_bin_dir = PathBuf::from(local_app_data).join("FetchDesk").join("bin");
+        for ext in &exts {
+            let candidate = fetch_bin_dir.join(format!("{}{}", bin, ext));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+
     if let Some(path_var) = std::env::var_os("PATH") {
         for p in std::env::split_paths(&path_var) {
             for ext in &exts {
