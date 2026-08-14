@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FetchDesk — High-Performance CLI Download Accelerator</title>
+  <meta name="description" content="A lightning-fast, terminal-based multi-connection download manager written in Rust with YouTube fragment acceleration and automated drive space switching.">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2306b6d4'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.68 12.87c.72-.51 1.25-1.29 1.45-2.22.25-1.16-.06-2.36-.83-3.23l1.45-1.45c1.4 1.58 1.96 3.75 1.51 5.86-.38 1.77-1.37 3.25-2.73 4.19l-.85-3.15zm-5.71-1.31c-.2-1.16.11-2.36.88-3.23l-1.45-1.45c-1.4 1.58-1.96 3.75-1.51 5.86.38 1.77 1.37 3.25 2.73 4.19l.85-3.15c-.71-.51-1.25-1.29-1.5-2.22zm4.03-5.26c-.72.51-1.25 1.29-1.45 2.22-.25 1.16.06 2.36.83 3.23l-1.45 1.45c-1.4-1.58-1.96-3.75-1.51-5.86.38-1.77 1.37-3.25 2.73-4.19l.85 3.15z'/%3E%3C/svg%3E">
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --bg-dark: #030712;
+      --bg-surface: #0b0f19;
+      --bg-card: rgba(17, 24, 39, 0.4);
+      --bg-card-hover: rgba(17, 24, 39, 0.7);
+      --accent-cyan: #06b6d4;
+      --accent-blue: #3b82f6;
+      --accent-purple: #8b5cf6;
+      --accent-green: #10b981;
+      --text-main: #f8fafc;
+      --text-muted: #64748b;
+      --border-color: rgba(255, 255, 255, 0.06);
+      --border-glow: rgba(6, 182, 212, 0.25);
+      --radius-lg: 16px;
+      --radius-md: 10px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: var(--bg-dark);
+      background-image: radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+      background-size: 24px 24px;
+      color: var(--text-main);
+      line-height: 1.5;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Ambient Lighting */
+    .glow-orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(150px);
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.35;
+    }
+    .glow-1 {
+      top: -200px;
+      left: 15%;
+      width: 700px;
+      height: 700px;
+      background: radial-gradient(circle, rgba(6, 182, 212, 0.3), transparent 70%);
+    }
+    .glow-2 {
+      top: 600px;
+      right: 10%;
+      width: 800px;
+      height: 800px;
+      background: radial-gradient(circle, rgba(139, 92, 246, 0.2), transparent 70%);
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 0 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Navigation */
+    nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 24px 0;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 1.25rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .logo-badge {
+      font-size: 0.7rem;
+      padding: 2px 8px;
+      border-radius: 20px;
+      background: rgba(6, 182, 212, 0.08);
+      color: var(--accent-cyan);
+      border: 1px solid rgba(6, 182, 212, 0.2);
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-weight: 600;
+    }
+    .nav-links {
+      display: flex;
+      gap: 28px;
+      list-style: none;
+    }
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.9rem;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover {
+      color: var(--accent-cyan);
+    }
+
+    /* Hero */
+    .hero {
+      text-align: center;
+      padding: 90px 0 60px;
+    }
+    .hero-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 30px;
+      background: rgba(6, 182, 212, 0.06);
+      border: 1px solid rgba(6, 182, 212, 0.15);
+      color: var(--accent-cyan);
+      font-size: 0.8rem;
+      font-weight: 700;
+      margin-bottom: 24px;
+      letter-spacing: 0.02em;
+    }
+    .hero h1 {
+      font-size: 3.8rem;
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.04em;
+      margin-bottom: 20px;
+    }
+    .hero h1 span {
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero p {
+      font-size: 1.15rem;
+      color: #94a3b8;
+      max-width: 650px;
+      margin: 0 auto 36px;
+      font-weight: 400;
+    }
+
+    .hero-actions {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      margin-bottom: 56px;
+    }
+    .btn {
+      padding: 12px 24px;
+      border-radius: var(--radius-md);
+      font-weight: 700;
+      font-size: 0.9rem;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.2s ease-in-out;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+      color: #030712;
+      box-shadow: 0 4px 20px rgba(6, 182, 212, 0.25);
+    }
+    .btn-primary:hover {
+      transform: translateY(-1.5px);
+      box-shadow: 0 6px 25px rgba(6, 182, 212, 0.4);
+    }
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      backdrop-filter: blur(12px);
+    }
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.15);
+      transform: translateY(-1.5px);
+    }
+
+    /* Terminal Mockup */
+    .terminal-container {
+      margin: 0 auto 80px;
+      max-width: 800px;
+      border-radius: var(--radius-md);
+      background: #060a13;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 30px 70px rgba(0, 0, 0, 0.8), 0 0 40px rgba(6, 182, 212, 0.05);
+      overflow: hidden;
+    }
+    .terminal-header {
+      background: #0d1320;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .terminal-dots {
+      display: flex;
+      gap: 8px;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .dot-red { background: #ef4444; }
+    .dot-yellow { background: #f59e0b; }
+    .dot-green { background: #10b981; }
+    .terminal-title {
+      font-size: 0.75rem;
+      font-family: 'Fira Code', monospace;
+      color: #475569;
+      margin-left: 20px;
+    }
+
+    /* VS-Code Style Minimalist Tabs */
+    .terminal-tabs {
+      display: flex;
+      background: #090e18;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .terminal-tab {
+      background: transparent;
+      border: none;
+      border-right: 1px solid var(--border-color);
+      color: #475569;
+      padding: 10px 20px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      position: relative;
+    }
+    .terminal-tab svg {
+      width: 13px;
+      height: 13px;
+      fill: currentColor;
+    }
+    .terminal-tab:hover {
+      color: #94a3b8;
+      background: rgba(255, 255, 255, 0.01);
+    }
+    .terminal-tab.active {
+      background: #060a13;
+      color: var(--accent-cyan);
+    }
+    .terminal-tab.active::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: var(--accent-cyan);
+    }
+
+    .terminal-body {
+      padding: 24px;
+      font-family: 'Fira Code', monospace;
+      font-size: 0.85rem;
+      line-height: 1.7;
+      color: #cbd5e1;
+      min-height: 380px;
+      text-align: left;
+    }
+    .t-cyan { color: var(--accent-cyan); }
+    .t-green { color: var(--accent-green); }
+    .t-yellow { color: #fbbf24; }
+    .t-purple { color: #a78bfa; }
+    .t-dim { color: #475569; }
+
+    /* Parallel Connections Grid (2-column layout for clean aesthetics) */
+    .parallel-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px 32px;
+      margin: 16px 0;
+      background: rgba(0, 0, 0, 0.25);
+      padding: 14px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      font-size: 0.8rem;
+    }
+
+    /* Custom Flat Progress Bar */
+    .progress-bar-wrap {
+      margin: 16px 0 8px;
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 4px;
+      height: 5px;
+      position: relative;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.02);
+    }
+    .progress-fill {
+      height: 100%;
+      border-radius: 4px;
+      background: linear-gradient(90deg, var(--accent-cyan), var(--accent-green));
+      width: 0%;
+      transition: width 0.15s ease-out;
+    }
+
+    /* Features */
+    .features-section {
+      padding: 60px 0;
+    }
+    .section-title {
+      text-align: center;
+      margin-bottom: 56px;
+    }
+    .section-title h2 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      margin-bottom: 12px;
+      letter-spacing: -0.03em;
+    }
+    .section-title p {
+      color: var(--text-muted);
+      font-size: 1rem;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+    }
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 32px;
+      backdrop-filter: blur(12px);
+      transition: all 0.2s ease-in-out;
+    }
+    .card:hover {
+      background: var(--bg-card-hover);
+      border-color: rgba(6, 182, 212, 0.25);
+      transform: translateY(-3px);
+    }
+    .card-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 8px;
+      background: rgba(6, 182, 212, 0.06);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+      color: var(--accent-cyan);
+    }
+    .card-icon svg {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+    }
+    .card h3 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      margin-bottom: 10px;
+      letter-spacing: -0.01em;
+    }
+    .card p {
+      color: #94a3b8;
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    /* Installation */
+    .install-section {
+      padding: 60px 0;
+    }
+    .code-box {
+      background: #060a13;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 20px 24px;
+      font-family: 'Fira Code', monospace;
+      max-width: 800px;
+      margin: 0 auto;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    }
+    .code-line {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+      font-size: 0.85rem;
+    }
+    .code-line:last-child {
+      margin-bottom: 0;
+      padding-bottom: 0;
+      border-bottom: none;
+    }
+    .copy-btn {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-color);
+      color: #94a3b8;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      transition: all 0.15s;
+    }
+    .copy-btn:hover {
+      background: rgba(6, 182, 212, 0.08);
+      border-color: rgba(6, 182, 212, 0.3);
+      color: var(--accent-cyan);
+    }
+
+    /* Prerequisites */
+    .dep-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 20px;
+      margin-top: 30px;
+    }
+    .dep-card {
+      background: rgba(6, 10, 19, 0.8);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .dep-card h4 {
+      font-size: 0.95rem;
+      color: var(--accent-cyan);
+      margin-bottom: 6px;
+      font-weight: 700;
+    }
+    .dep-card p {
+      font-size: 0.82rem;
+      color: #94a3b8;
+      margin-bottom: 18px;
+    }
+
+    /* Toast Notification */
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .toast {
+      background: #0f172a;
+      border: 1px solid rgba(6, 182, 212, 0.3);
+      color: var(--text-main);
+      padding: 12px 18px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transform: translateY(100px);
+      opacity: 0;
+      animation: slideIn 0.25s forwards, slideOut 0.25s 2.75s forwards;
+    }
+    @keyframes slideIn {
+      to { transform: translateY(0); opacity: 1; }
+    }
+    @keyframes slideOut {
+      to { transform: translateY(100px); opacity: 0; }
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border-color);
+      padding: 40px 0;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="glow-orb glow-1"></div>
+  <div class="glow-orb glow-2"></div>
+
+  <div class="container">
+    <!-- Navbar -->
+    <nav>
+      <div class="logo">
+        <svg viewBox="0 0 24 24" width="22" height="22" style="fill: url(#logo-gradient); flex-shrink: 0; margin-right: 4px; display: inline-block; vertical-align: middle;">
+          <defs>
+            <linearGradient id="logo-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="var(--accent-cyan)" />
+              <stop offset="100%" stop-color="var(--accent-blue)" />
+            </linearGradient>
+          </defs>
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.68 12.87c.72-.51 1.25-1.29 1.45-2.22.25-1.16-.06-2.36-.83-3.23l1.45-1.45c1.4 1.58 1.96 3.75 1.51 5.86-.38 1.77-1.37 3.25-2.73 4.19l-.85-3.15zm-5.71-1.31c-.2-1.16.11-2.36.88-3.23l-1.45-1.45c-1.4 1.58-1.96 3.75-1.51 5.86.38 1.77 1.37 3.25 2.73 4.19l.85-3.15c-.71-.51-1.25-1.29-1.5-2.22zm4.03-5.26c-.72.51-1.25 1.29-1.45 2.22-.25 1.16.06 2.36.83 3.23l-1.45 1.45c-1.4-1.58-1.96-3.75-1.51-5.86.38-1.77 1.37-3.25 2.73-4.19l.85 3.15z"/>
+        </svg>
+        <span style="background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 800;">FetchDesk</span>
+        <span class="logo-badge" style="margin-left: 6px;">v0.2.0</span>
+      </div>
+      <ul class="nav-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#install">Install</a></li>
+        <li><a href="#prereqs">Prerequisites</a></li>
+        <li><a href="https://github.com/jojin1709/fetchdesk" target="_blank">GitHub</a></li>
+      </ul>
+    </nav>
+
+    <!-- Hero -->
+    <section class="hero">
+      <div class="hero-tag">🚀 High-Performance Rust Core • 1-Line Setup</div>
+      <h1>Next-Gen Multi-Connection<br><span>Download Accelerator</span></h1>
+      <p>Stream direct files with 16 parallel connections, retrieve YouTube media in high quality, and transfer BitTorrent links with automated path & drive space inspection.</p>
+      
+      <div class="hero-actions">
+        <a href="#install" class="btn btn-primary">⚡ 1-Line PowerShell Install</a>
+        <a href="https://github.com/jojin1709/fetchdesk" target="_blank" class="btn btn-secondary">⭐ Star on GitHub</a>
+      </div>
+
+      <!-- Tabbed Terminal Mockup -->
+      <div class="terminal-container">
+        <div class="terminal-header">
+          <div class="terminal-dots">
+            <div class="dot dot-red"></div>
+            <div class="dot dot-yellow"></div>
+            <div class="dot dot-green"></div>
+          </div>
+          <div class="terminal-title" id="terminal-title">fetchdesk.exe — 16 Connections Active</div>
+        </div>
+        <div class="terminal-tabs">
+          <button class="terminal-tab active" id="tab-http" onclick="switchTab('http')">
+            <svg viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
+            HTTP Accelerator
+          </button>
+          <button class="terminal-tab" id="tab-youtube" onclick="switchTab('youtube')">
+            <svg viewBox="0 0 24 24"><path d="M23 12c0 3.07-1.63 5.7-4.08 7.15L12 15l-6.92 4.15C2.63 17.7 1 15.07 1 12c0-4.97 4.03-9 9-9 2.5 0 4.75 1.02 6.36 2.64L19.36 2.7C17.26.8 14.47 0 12 0c-6.63 0-12 5.37-12 12s5.37 12 12 12c3.07 0 5.7-1.63 7.15-4.08L15 12l4.15-6.92C17.7 2.63 15.07 1 12 1c-4.97 0-9 4.03-9 9 0 2.5 1.02 4.75 2.64 6.36L2.7 19.36C.8 17.26 0 14.47 0 12c0-6.63 5.37-12 12-12s12 5.37 12 12z"/></svg>
+            YouTube Extractor
+          </button>
+          <button class="terminal-tab" id="tab-torrent" onclick="switchTab('torrent')">
+            <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 14h-2v-6h2v6zm0-8h-2V6h2v2z"/></svg>
+            Torrent Engine
+          </button>
+          <button class="terminal-tab" id="tab-switcher" onclick="switchTab('switcher')">
+            <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+            Smart Switcher
+          </button>
+        </div>
+        <div class="terminal-body" id="terminal-body">
+          <!-- Populated dynamically by javascript -->
+        </div>
+      </div>
+    </section>
+
+    <!-- Installation -->
+    <section id="install" class="install-section">
+      <div class="section-title">
+        <h2>⚡ 1-Line Instant PowerShell Install</h2>
+        <p>No source code, cargo setup, or manual paths required. Run this in PowerShell:</p>
+      </div>
+
+      <div class="code-box">
+        <div class="code-line">
+          <span><span class="t-cyan">iwr -useb</span> https://raw.githubusercontent.com/jojin1709/fetchdesk/main/install.ps1 | <span class="t-green">iex</span></span>
+          <button class="copy-btn" onclick="copyText('iwr -useb https://raw.githubusercontent.com/jojin1709/fetchdesk/main/install.ps1 | iex')">Copy Command</button>
+        </div>
+        <div class="code-line">
+          <span><span class="t-cyan">irm</span> https://raw.githubusercontent.com/jojin1709/fetchdesk/main/install.ps1 | <span class="t-green">iex</span></span>
+          <button class="copy-btn" onclick="copyText('irm https://raw.githubusercontent.com/jojin1709/fetchdesk/main/install.ps1 | iex')">Copy Alternate</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section id="features" class="features-section">
+      <div class="section-title">
+        <h2>Engineered for High Throughput & Efficiency</h2>
+        <p>Everything you need for clean, accelerated command-line file downloads.</p>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <div class="card-icon">
+            <svg viewBox="0 0 24 24"><path d="M13 2v8h8l-8 12v-8h-8l8-12z"/></svg>
+          </div>
+          <h3>16-Connection Parallel Engine</h3>
+          <p>Streams direct HTTP/HTTPS downloads concurrently over 16 split connections for maximum network bandwidth usage.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">
+            <svg viewBox="0 0 24 24"><path d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9 9H9v-2h3v2zm3-4H9V6h6v2z"/></svg>
+          </div>
+          <h3>YouTube Video & Playlist</h3>
+          <p>Download 4K, 1080p, 720p, or Audio formats with automated fragment connection acceleration.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">
+            <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 14h-2v-6h2v6zm0-8h-2V6h2v2z"/></svg>
+          </div>
+          <h3>BitTorrent & Magnet Swarm</h3>
+          <p>Integrated tracker loader injecting active tracklist feeds, DHT, and client spoofing for prioritised download speeds.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">
+            <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+          </div>
+          <h3>Smart Disk Inspector</h3>
+          <p>Performs dynamic local disk space inspection (`GetDiskFreeSpaceExW`). Switch output targets if the default path runs out of space.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">
+            <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+          </div>
+          <h3>Sleek Animated UI</h3>
+          <p>Monitors active segments and downloads without cluttering your screen. Displays ETA, speeds, and status in real-time.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+          </div>
+          <h3>History Log & CSV Export</h3>
+          <p>Maintains a persistent record of files, sizes, speeds, and timestamps. Supports seamless CSV exporting.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">
+            <svg viewBox="0 0 24 24" style="fill: currentColor;"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.68 12.87c.72-.51 1.25-1.29 1.45-2.22.25-1.16-.06-2.36-.83-3.23l1.45-1.45c1.4 1.58 1.96 3.75 1.51 5.86-.38 1.77-1.37 3.25-2.73 4.19l-.85-3.15zm-5.71-1.31c-.2-1.16.11-2.36.88-3.23l-1.45-1.45c-1.4 1.58-1.96 3.75-1.51 5.86.38 1.77 1.37 3.25 2.73 4.19l.85-3.15c-.71-.51-1.25-1.29-1.5-2.22zm4.03-5.26c-.72.51-1.25 1.29-1.45 2.22-.25 1.16.06 2.36.83 3.23l-1.45 1.45c-1.4-1.58-1.96-3.75-1.51-5.86.38-1.77 1.37-3.25 2.73-4.19l.85 3.15z"/></svg>
+          </div>
+          <h3>Chrome & Edge Extension</h3>
+          <p>Instantly send links and YouTube videos directly to your local FetchDesk queue via context menu items or manual popup inputs.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Prerequisites -->
+    <section id="prereqs" class="install-section">
+      <div class="section-title">
+        <h2>Optional Helper Tools</h2>
+        <p>Enable YouTube video processing and torrent capabilities. The PowerShell installer handles these automatically, or configure manually:</p>
+      </div>
+
+      <div class="dep-grid">
+        <div class="dep-card">
+          <div>
+            <h4>yt-dlp (YouTube Engine)</h4>
+            <p>Handles video and audio stream extraction.</p>
+          </div>
+          <div class="code-line" style="margin-bottom:0; background: transparent; border: none; padding: 0;">
+            <code style="font-size:0.8rem;" class="t-green">pip install -U yt-dlp</code>
+            <button class="copy-btn" onclick="copyText('pip install -U yt-dlp')">Copy</button>
+          </div>
+        </div>
+
+        <div class="dep-card">
+          <div>
+            <h4>aria2 (BitTorrent Engine)</h4>
+            <p>Backs BitTorrent links and magnet downloader workflows.</p>
+          </div>
+          <div class="code-line" style="margin-bottom:0; background: transparent; border: none; padding: 0;">
+            <code style="font-size:0.8rem;" class="t-green">winget install aria2.aria2</code>
+            <button class="copy-btn" onclick="copyText('winget install aria2.aria2')">Copy</button>
+          </div>
+        </div>
+
+        <div class="dep-card">
+          <div>
+            <h4>ffmpeg (Media Merger)</h4>
+            <p>Stitches separate HD video and audio formats together.</p>
+          </div>
+          <div class="code-line" style="margin-bottom:0; background: transparent; border: none; padding: 0;">
+            <code style="font-size:0.8rem;" class="t-green">winget install Gyan.FFmpeg</code>
+            <button class="copy-btn" onclick="copyText('winget install Gyan.FFmpeg')">Copy</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Toast Notification Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- Footer -->
+    <footer>
+      <p>Developed with ❤️ by <strong>JOJIN JOHN</strong> • Released under **Proprietary License (All Rights Reserved)**</p>
+    </footer>
+  </div>
+
+  <script>
+    // Copy Text Notification
+    function copyText(text) {
+      navigator.clipboard.writeText(text);
+      showToast("Copied command to clipboard!");
+    }
+
+    function showToast(message) {
+      const container = document.getElementById("toast-container");
+      const toast = document.createElement("div");
+      toast.className = "toast";
+      toast.innerHTML = `<span>✓</span> ${message}`;
+      container.appendChild(toast);
+      
+      // Auto-remove toast after animation finishes
+      setTimeout(() => {
+        toast.remove();
+      }, 3000);
+    }
+
+    // Interactive Terminal Mockups and Animations
+    const terminalData = {
+      http: {
+        title: "fetchdesk.exe — 16 Connections Active",
+        content: `<div><span class="t-cyan">fetchdesk></span> d</div>
+<div>Paste direct file URL: https://releases.ubuntu.com/24.04.1/ubuntu-desktop.iso</div>
+<div>→ Target: ubuntu-desktop.iso (5.8 GB)</div>
+<div>→ Spawning 16 parallel connections...</div>
+<div class="parallel-grid" id="http-grid">
+  <div>Conn #01: [<span class="t-cyan" id="c1">▰▰▰▱▱▱▱▱▱▱</span>] <span id="c1-txt">30%</span> @ 4.2MB/s</div>
+  <div>Conn #09: [<span class="t-cyan" id="c9">▰▰▰▰▱▱▱▱▱▱</span>] <span id="c9-txt">40%</span> @ 3.8MB/s</div>
+  <div>Conn #02: [<span class="t-cyan" id="c2">▰▰▰▰▰▱▱▱▱▱</span>] <span id="c2-txt">50%</span> @ 4.6MB/s</div>
+  <div>Conn #10: [<span class="t-cyan" id="c10">▰▰▰▰▰▰▱▱▱▱</span>] <span id="c10-txt">60%</span> @ 4.1MB/s</div>
+  <div>Conn #03: [<span class="t-cyan" id="c3">▰▰▱▱▱▱▱▱▱▱</span>] <span id="c3-txt">20%</span> @ 3.5MB/s</div>
+  <div>Conn #11: [<span class="t-cyan" id="c11">▰▰▰▱▱▱▱▱▱▱</span>] <span id="c11-txt">30%</span> @ 3.9MB/s</div>
+  <div>Conn #04: [<span class="t-cyan" id="c4">▰▰▰▰▰▰▰▰▱▱</span>] <span id="c4-txt">80%</span> @ 5.0MB/s</div>
+  <div>Conn #12: [<span class="t-cyan" id="c12">▰▰▰▰▰▰▰▱▱▱</span>] <span id="c12-txt">70%</span> @ 4.8MB/s</div>
+</div>
+<div class="progress-bar-wrap">
+  <div class="progress-fill" id="progress-bar"></div>
+</div>
+<div style="display: flex; justify-content: space-between;" class="t-dim">
+  <span>Progress: <span class="t-cyan" id="progress-text">40.0%</span></span>
+  <span>Speed: <span class="t-green" id="speed-text">48.7 MiB/s</span></span>
+  <span>ETA: <span class="t-yellow" id="eta-text">00m 54s</span></span>
+</div>`
+      },
+      youtube: {
+        title: "fetchdesk.exe — YouTube Downloader Mode",
+        content: `<div><span class="t-cyan">fetchdesk></span> y</div>
+<div>Paste YouTube URL: https://www.youtube.com/watch?v=dQw4w9WgXcQ</div>
+<div>→ Fetching video metadata...</div>
+<div><span class="t-green">✓ Title:</span> Rick Astley - Never Gonna Give You Up (Official Video)</div>
+<div><span class="t-green">✓ Duration:</span> 03:32 | <span class="t-green">Uploader:</span> Rick Astley</div>
+<br>
+<div><span class="t-purple">Select Video Quality:</span></div>
+<div>  [1] 1080p (MP4, High quality) - 45.2 MB</div>
+<div>  [2] 720p (MP4, Medium quality) - 24.8 MB</div>
+<div>  [3] 480p (MP4, Low quality) - 12.4 MB</div>
+<div>  [4] Audio Only (M4A) - 3.4 MB</div>
+<br>
+<div>Select format number (1-4): 1</div>
+<div>→ Downloading rick_astley_never_gonna_give_you_up.mp4 (45.2 MB)</div>
+<div class="progress-bar-wrap">
+  <div class="progress-fill" id="progress-bar"></div>
+</div>
+<div style="display: flex; justify-content: space-between;" class="t-dim">
+  <span>Progress: <span class="t-cyan" id="progress-text">80.0%</span></span>
+  <span>Speed: <span class="t-green" id="speed-text">14.1 MiB/s</span></span>
+  <span>ETA: <span class="t-yellow" id="eta-text">00m 01s</span></span>
+</div>`
+      },
+      torrent: {
+        title: "fetchdesk.exe — BitTorrent & Magnet Mode",
+        content: `<div><span class="t-cyan">fetchdesk></span> m</div>
+<div>Paste Magnet Link or Torrent path: magnet:?xt=urn:btih:3ba50c33a...</div>
+<div>→ Initializing aria2 engine...</div>
+<div>→ Injecting 15 trackers for swarm acceleration...</div>
+<div>→ Downloading: ArchLinux-2026.08-x86_64.iso (2.4 GB)</div>
+<br>
+<div class="t-green">✓ Connected to 42 peers (18 seeders)</div>
+<div class="t-dim">Spoofing Transmission peer ID... Done</div>
+<div class="progress-bar-wrap">
+  <div class="progress-fill" id="progress-bar"></div>
+</div>
+<div style="display: flex; justify-content: space-between;" class="t-dim">
+  <span>Progress: <span class="t-cyan" id="progress-text">50.0%</span></span>
+  <span>Speed: <span class="t-green" id="speed-text">28.7 MiB/s</span></span>
+  <span>ETA: <span class="t-yellow" id="eta-text">00m 30s</span></span>
+</div>`
+      },
+      switcher: {
+        title: "fetchdesk.exe — Smart Drive Switcher Mode",
+        content: `<div><span class="t-cyan">fetchdesk></span> d</div>
+<div>Paste direct file URL: https://releases.ubuntu.com/24.04.1/ubuntu-desktop.iso</div>
+<div><span class="t-yellow">⚠ Insufficient space on C:\\ (Available: 0.4 GB, Required: 5.8 GB)</span></div>
+<br>
+<div class="t-cyan">SELECT ALTERNATIVE DRIVE WITH AVAILABLE SPACE:</div>
+<div>  1 <span class="t-green">D:\\</span> (58.6 GB free) <span class="t-yellow">✓ Recommended</span></div>
+<div>  2 Enter custom path</div>
+<br>
+<div>Select drive (number): 1</div>
+<div><span class="t-green">✓ Output directory switched to: D:\\Downloads</span></div>
+<div>→ Downloading: ubuntu-desktop.iso (5.8 GB) using 16 connections</div>
+<div class="progress-bar-wrap">
+  <div class="progress-fill" id="progress-bar"></div>
+</div>
+<div style="display: flex; justify-content: space-between;" class="t-dim">
+  <span>Progress: <span class="t-cyan" id="progress-text">70.0%</span></span>
+  <span>Speed: <span class="t-green" id="speed-text">45.2 MiB/s</span></span>
+  <span>ETA: <span class="t-yellow" id="eta-text">01m 12s</span></span>
+</div>`
+      }
+    };
+
+    let activeInterval = null;
+
+    function switchTab(tabId) {
+      if (activeInterval) clearInterval(activeInterval);
+
+      // Manage active classes
+      document.querySelectorAll('.terminal-tab').forEach(tab => {
+        tab.classList.remove('active');
+      });
+      document.getElementById(`tab-${tabId}`).classList.add('active');
+
+      const title = document.getElementById('terminal-title');
+      const body = document.getElementById('terminal-body');
+
+      title.textContent = terminalData[tabId].title;
+      body.innerHTML = terminalData[tabId].content;
+
+      // Animate progress and numbers
+      const fill = document.getElementById('progress-bar');
+      const text = document.getElementById('progress-text');
+      const speed = document.getElementById('speed-text');
+      const eta = document.getElementById('eta-text');
+
+      if (tabId === 'http') {
+        let pct = 40.0;
+        const conns = [1, 2, 3, 4, 9, 10, 11, 12];
+        
+        activeInterval = setInterval(() => {
+          pct += (Math.random() * 0.8) + 0.1;
+          if (pct > 99.5) pct = 40.0;
+          
+          fill.style.width = `${pct}%`;
+          text.textContent = `${pct.toFixed(1)}%`;
+          
+          // Randomize speed/ETA slightly
+          const rawSpeed = (45.0 + Math.random() * 5).toFixed(1);
+          speed.textContent = `${rawSpeed} MiB/s`;
+          
+          const rawEta = Math.ceil((5.8 * 1024 * (1 - (pct / 100))) / rawSpeed);
+          const minutes = Math.floor(rawEta / 60);
+          const seconds = rawEta % 60;
+          eta.textContent = `${minutes.toString().padStart(2, '0')}m ${seconds.toString().padStart(2, '0')}s`;
+
+          // Randomize connection progress bars
+          conns.forEach(c => {
+            const bar = document.getElementById(`c${c}`);
+            const barTxt = document.getElementById(`c${c}-txt`);
+            if (bar && barTxt) {
+              let chunk = parseInt(barTxt.textContent.replace(/[^\d]/g, ''));
+              chunk += Math.floor(Math.random() * 3) + 1;
+              if (chunk > 100) chunk = 100;
+              barTxt.textContent = `${chunk}%`;
+              
+              const blocks = Math.ceil(chunk / 10);
+              bar.textContent = `${'▰'.repeat(blocks)}${'▱'.repeat(10 - blocks)}`;
+            }
+          });
+        }, 150);
+      }
+      else if (tabId === 'youtube') {
+        let pct = 80.0;
+        activeInterval = setInterval(() => {
+          pct += (Math.random() * 0.5) + 0.1;
+          if (pct > 99.9) pct = 80.0;
+
+          fill.style.width = `${pct}%`;
+          text.textContent = `${pct.toFixed(1)}%`;
+
+          const rawSpeed = (12.0 + Math.random() * 3).toFixed(1);
+          speed.textContent = `${rawSpeed} MiB/s`;
+
+          const rawEta = Math.max(0, Math.ceil((45.2 * (1 - (pct / 100))) / rawSpeed));
+          eta.textContent = `00m ${rawEta.toString().padStart(2, '0')}s`;
+        }, 200);
+      }
+      else if (tabId === 'torrent') {
+        let pct = 50.0;
+        activeInterval = setInterval(() => {
+          pct += (Math.random() * 0.7) + 0.1;
+          if (pct > 99.8) pct = 50.0;
+
+          fill.style.width = `${pct}%`;
+          text.textContent = `${pct.toFixed(1)}%`;
+
+          const rawSpeed = (25.0 + Math.random() * 5).toFixed(1);
+          speed.textContent = `${rawSpeed} MiB/s`;
+
+          const rawEta = Math.ceil((2.4 * 1024 * (1 - (pct / 100))) / rawSpeed);
+          const minutes = Math.floor(rawEta / 60);
+          const seconds = rawEta % 60;
+          eta.textContent = `${minutes.toString().padStart(2, '0')}m ${seconds.toString().padStart(2, '0')}s`;
+        }, 180);
+      }
+      else if (tabId === 'switcher') {
+        let pct = 70.0;
+        activeInterval = setInterval(() => {
+          pct += (Math.random() * 0.4) + 0.1;
+          if (pct > 99.7) pct = 70.0;
+
+          fill.style.width = `${pct}%`;
+          text.textContent = `${pct.toFixed(1)}%`;
+
+          const rawSpeed = (42.0 + Math.random() * 4).toFixed(1);
+          speed.textContent = `${rawSpeed} MiB/s`;
+
+          const rawEta = Math.ceil((5.8 * 1024 * (1 - (pct / 100))) / rawSpeed);
+          const minutes = Math.floor(rawEta / 60);
+          const seconds = rawEta % 60;
+          eta.textContent = `${minutes.toString().padStart(2, '0')}m ${seconds.toString().padStart(2, '0')}s`;
+        }, 250);
+      }
+    }
+
+    // Bootstrap terminal
+    switchTab('http');
+  </script>
+</body>
+</html>
