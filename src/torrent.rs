@@ -8,13 +8,28 @@ use crate::banner;
 use crate::config::Config;
 use crate::youtube::which;
 
+fn resolve_aria2c() -> Result<PathBuf> {
+    if let Some(p) = which("aria2c") {
+        return Ok(p);
+    }
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        let fetch_bin = PathBuf::from(local_app_data).join("FetchDesk").join("bin").join("aria2c.exe");
+        if fetch_bin.exists() {
+            return Ok(fetch_bin);
+        }
+    }
+    if let Some(home) = std::env::var_os("USERPROFILE").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(PathBuf::from)) {
+        let py_script = home.join("AppData").join("Roaming").join("Python").join("Python314").join("Scripts").join("aria2c.exe");
+        if py_script.exists() {
+            return Ok(py_script);
+        }
+    }
+    Err(anyhow!("aria2c not found. Please run the install.ps1 setup script."))
+}
+
 /// Download torrent/magnet with full options and sleek animated progress bar
 pub fn download_torrent(target: &str, out_dir: &PathBuf, config: &Config) -> Result<()> {
-    let aria2c_path = which("aria2c").ok_or_else(|| {
-        anyhow!(
-            "aria2c not found on PATH. Install it first:\n    winget install aria2.aria2\n    choco install aria2\n    scoop install aria2"
-        )
-    })?;
+    let aria2c_path = resolve_aria2c()?;
 
     std::fs::create_dir_all(out_dir)?;
 
