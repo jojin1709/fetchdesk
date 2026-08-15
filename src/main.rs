@@ -25,13 +25,22 @@ async fn main() {
         let mut q = download_queue.lock().await;
         q.max_parallel = config.download.max_parallel_downloads;
     }
-    let mut history = DownloadHistory::load();
+    let history = std::sync::Arc::new(tokio::sync::Mutex::new(DownloadHistory::load()));
 
     // Start background webhook server on port 8382
     let server_queue = download_queue.clone();
     let server_config = config.clone();
+    let server_history = history.clone();
     tokio::spawn(async move {
-        start_webhook_server(server_queue, server_config).await;
+        start_webhook_server(server_queue, server_config, server_history).await;
+    });
+
+    // Start background queue worker loop
+    let worker_queue = download_queue.clone();
+    let worker_config = config.clone();
+    let worker_history = history.clone();
+    tokio::spawn(async move {
+        queue_worker_loop(worker_queue, worker_config, worker_history).await;
     });
 
     loop {
@@ -54,9 +63,9 @@ async fn main() {
         match cmd {
             "exit" | "q" | "quit" => break,
             "help" | "?" => banner::print_help(),
-            "y" => handle_youtube(arg, &config, &mut history).await,
-            "m" => handle_magnet(arg, &config, &mut history),
-            "d" => handle_direct(arg, &config, &mut history).await,
+            "y" => handle_youtube(arg, &config, history.clone()).await,
+            "m" => handle_magnet(arg, &config, history.clone()).await,
+            "d" => handle_direct(arg, &config, history.clone()).await,
             "search" => handle_search(arg),
             "playlist" => handle_playlist(arg, &config).await,
             "info" => handle_info(arg),
@@ -78,12 +87,12 @@ async fn main() {
             "verify" => toggle_verify(&mut config),
             "queue" => {
                 let mut q = download_queue.lock().await;
-                handle_queue(arg, &mut q, &config, &mut history).await;
+                handle_queue(arg, &mut q, &config, history.clone()).await;
             }
-            "history" => handle_history(arg, &mut history),
-            "export" => handle_export(arg, &history),
+            "history" => handle_history(arg, history.clone()).await,
+            "export" => handle_export(arg, history.clone()).await,
             "config" => handle_config(arg, &config),
-            _ => handle_target(input, &config, &mut history).await,
+            _ => handle_target(input, &config, history.clone()).await,
         }
     }
 
@@ -92,7 +101,7 @@ async fn main() {
     println!();
 }
 
-async fn handle_youtube(url: &str, config: &Config, history: &mut DownloadHistory) {
+async fn handle_youtube(url: &str, config: &Config, history: std::sync::Arc<tokio::sync::Mutex<DownloadHistory>>) {
     let url = if url.is_empty() {
         prompt("Paste YouTube URL:")
     } else {
@@ -107,8 +116,11 @@ async fn handle_youtube(url: &str, config: &Config, history: &mut DownloadHistor
     }
 
     // Check duplicate
-    if history.is_duplicate(&url) {
-        banner::print_warning("This URL was already downloaded. Use 'history' to see details.");
+    {
+        let h = history.lock().await;
+        if h.is_duplicate(&url) {
+            banner::print_warning("This URL was already downloaded. Use 'history' to see details.");
+        }
     }
 
     let out_dir = PathBuf::from(&config.general.output_dir);
@@ -145,12 +157,13 @@ async fn handle_youtube(url: &str, config: &Config, history: &mut DownloadHistor
                     let mut custom_config = config.clone();
                     custom_config.youtube.quality = selected.format.clone();
                     let start = std::time::Instant::now();
-                    let result = youtube::download_youtube(&url, &out_dir, &custom_config).await;
+                    let result = youtube::download_youtube(&url, &out_dir, &custom_config, None, false).await;
                     let elapsed = start.elapsed().as_secs_f64();
 
                     match result {
                         Ok(_) => {
-                            history.add(&url, None, "youtube", Some(&selected.display), &out_dir.display().to_string(), None, Some(elapsed));
+                            let mut h = history.lock().await;
+                            h.add(&url, None, "youtube", Some(&selected.display), &out_dir.display().to_string(), None, Some(elapsed));
                         }
                         Err(e) => {
                             banner::print_error(&e.to_string());
@@ -169,7 +182,7 @@ async fn handle_youtube(url: &str, config: &Config, history: &mut DownloadHistor
     }
 }
 
-fn handle_magnet(url: &str, config: &Config, history: &mut DownloadHistory) {
+async fn handle_magnet(url: &str, config: &Config, history: std::sync::Arc<tokio::sync::Mutex<DownloadHistory>>) {
     let url = if url.is_empty() {
         prompt("Paste magnet link or .torrent path:")
     } else {
@@ -180,10 +193,11 @@ fn handle_magnet(url: &str, config: &Config, history: &mut DownloadHistory) {
     }
     let out_dir = PathBuf::from(&config.general.output_dir);
     let start = std::time::Instant::now();
-    match torrent::download_torrent(&url, &out_dir, config) {
+    match torrent::download_torrent(&url, &out_dir, config, None, false) {
         Ok(_) => {
             let elapsed = start.elapsed().as_secs_f64();
-            history.add(&url, None, "torrent", None, &out_dir.display().to_string(), None, Some(elapsed));
+            let mut h = history.lock().await;
+            h.add(&url, None, "torrent", None, &out_dir.display().to_string(), None, Some(elapsed));
         }
         Err(e) => {
             banner::print_error(&e.to_string());
@@ -191,7 +205,7 @@ fn handle_magnet(url: &str, config: &Config, history: &mut DownloadHistory) {
     }
 }
 
-async fn handle_direct(url: &str, config: &Config, history: &mut DownloadHistory) {
+async fn handle_direct(url: &str, config: &Config, history: std::sync::Arc<tokio::sync::Mutex<DownloadHistory>>) {
     let url = if url.is_empty() {
         prompt("Paste direct file URL:")
     } else {
@@ -201,18 +215,22 @@ async fn handle_direct(url: &str, config: &Config, history: &mut DownloadHistory
         return;
     }
 
-    if history.is_duplicate(&url) {
-        banner::print_warning("This URL was already downloaded.");
+    {
+        let h = history.lock().await;
+        if h.is_duplicate(&url) {
+            banner::print_warning("This URL was already downloaded.");
+        }
     }
 
     let out_dir = PathBuf::from(&config.general.output_dir);
     let start = std::time::Instant::now();
-    let result = downloader::download_direct(&url, &out_dir, config).await;
+    let result = downloader::download_direct(&url, &out_dir, config, None, false).await;
     let elapsed = start.elapsed().as_secs_f64();
 
     match result {
         Ok(_) => {
-            history.add(&url, None, "direct", None, &out_dir.display().to_string(), None, Some(elapsed));
+            let mut h = history.lock().await;
+            h.add(&url, None, "direct", None, &out_dir.display().to_string(), None, Some(elapsed));
         }
         Err(e) => {
             banner::print_error(&e.to_string());
@@ -303,7 +321,7 @@ async fn handle_playlist(url: &str, config: &Config) {
             let mut choice = String::new();
             io::stdin().read_line(&mut choice).ok();
             if choice.trim().to_lowercase() == "y" {
-                if let Err(e) = youtube::download_playlist(&url, &out_dir, config).await {
+                if let Err(e) = youtube::download_playlist(&url, &out_dir, config, None, false).await {
                     banner::print_error(&e.to_string());
                 }
             }
@@ -542,7 +560,7 @@ async fn handle_queue(
     arg: &str,
     queue: &mut DownloadQueue,
     config: &Config,
-    history: &mut DownloadHistory,
+    _history: std::sync::Arc<tokio::sync::Mutex<DownloadHistory>>,
 ) {
     let mut parts = arg.splitn(2, ' ');
     let sub = parts.next().unwrap_or("list");
@@ -610,7 +628,7 @@ async fn handle_queue(
             banner::print_success(&format!("Added to queue: {}", id));
         }
         "start" => {
-            process_queue(queue, config, history).await;
+            banner::print_info("Queue processing is running in the background.");
         }
         "pause" => {
             if sub_arg.is_empty() {
@@ -658,49 +676,15 @@ async fn handle_queue(
     }
 }
 
-async fn process_queue(queue: &mut DownloadQueue, config: &Config, history: &mut DownloadHistory) {
-    loop {
-        let item = queue.start_next();
-        if item.is_none() {
-            break;
-        }
-        let item = item.unwrap();
-        let id = item.id.clone();
-        let url = item.url.clone();
-        let target_type = item.target_type.clone();
-        let out_dir = PathBuf::from(&item.output_dir);
-
-        banner::print_info(&format!("Processing: {} ({})", id, target_type));
-
-        let result = match target_type.as_str() {
-            "youtube" => youtube::download_youtube(&url, &out_dir, config).await.map(|_| ()),
-            "torrent" => torrent::download_torrent(&url, &out_dir, config),
-            "direct" => downloader::download_direct(&url, &out_dir, config).await,
-            _ => Err(anyhow::anyhow!("Unknown type")),
-        };
-
-        match result {
-            Ok(_) => {
-                queue.complete(&id, &out_dir.display().to_string());
-                history.add(&url, None, &target_type, None, &out_dir.display().to_string(), None, None);
-                banner::print_success(&format!("Completed: {}", id));
-            }
-            Err(e) => {
-                queue.fail(&id, &e.to_string());
-                banner::print_error(&format!("Failed: {} - {}", id, e));
-            }
-        }
-    }
-}
-
-fn handle_history(arg: &str, history: &mut DownloadHistory) {
+async fn handle_history(arg: &str, history: std::sync::Arc<tokio::sync::Mutex<DownloadHistory>>) {
     let mut parts = arg.splitn(2, ' ');
     let sub = parts.next().unwrap_or("list");
     let sub_arg = parts.next().unwrap_or("").trim();
 
+    let mut h = history.lock().await;
     match sub {
         "list" | "" => {
-            let entries = history.list(20);
+            let entries = h.list(20);
             if entries.is_empty() {
                 banner::print_info("No download history");
                 return;
@@ -710,8 +694,8 @@ fn handle_history(arg: &str, history: &mut DownloadHistory) {
             println!(
                 "  {} ({} downloads, {})",
                 "DOWNLOAD HISTORY".yellow().bold(),
-                history.count(),
-                downloader::human_size(history.total_size())
+                h.count(),
+                downloader::human_size(h.total_size())
             );
             println!("  {}", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".dimmed());
             println!();
@@ -738,7 +722,7 @@ fn handle_history(arg: &str, history: &mut DownloadHistory) {
                 banner::print_error("Usage: history search <query>");
                 return;
             }
-            let results = history.search(sub_arg);
+            let results = h.search(sub_arg);
             if results.is_empty() {
                 banner::print_info("No matching entries found");
                 return;
@@ -756,7 +740,7 @@ fn handle_history(arg: &str, history: &mut DownloadHistory) {
             println!();
         }
         "clear" => {
-            history.clear();
+            h.clear();
             banner::print_success("History cleared");
         }
         _ => {
@@ -765,12 +749,13 @@ fn handle_history(arg: &str, history: &mut DownloadHistory) {
     }
 }
 
-fn handle_export(arg: &str, history: &DownloadHistory) {
+async fn handle_export(arg: &str, history: std::sync::Arc<tokio::sync::Mutex<DownloadHistory>>) {
     let format = if arg.is_empty() { "json" } else { arg };
 
+    let h = history.lock().await;
     let content = match format {
-        "json" => history.export_json(),
-        "csv" => history.export_csv(),
+        "json" => h.export_json(),
+        "csv" => h.export_csv(),
         _ => {
             banner::print_error("Unknown format. Use: export [json|csv]");
             return;
@@ -837,16 +822,16 @@ fn handle_config(arg: &str, config: &Config) {
     }
 }
 
-async fn handle_target(target: &str, config: &Config, history: &mut DownloadHistory) {
+async fn handle_target(target: &str, config: &Config, history: std::sync::Arc<tokio::sync::Mutex<DownloadHistory>>) {
     let out_dir = PathBuf::from(&config.general.output_dir);
     let start = std::time::Instant::now();
 
     let (target_type, result) = if is_youtube(target) {
-        ("youtube", youtube::download_youtube(target, &out_dir, config).await)
+        ("youtube", youtube::download_youtube(target, &out_dir, config, None, false).await)
     } else if is_torrent(target) {
-        ("torrent", torrent::download_torrent(target, &out_dir, config))
+        ("torrent", torrent::download_torrent(target, &out_dir, config, None, false))
     } else if target.starts_with("http://") || target.starts_with("https://") {
-        ("direct", downloader::download_direct(target, &out_dir, config).await)
+        ("direct", downloader::download_direct(target, &out_dir, config, None, false).await)
     } else {
         banner::print_error("Not a recognized YouTube link, magnet/torrent, or HTTP(S) URL");
         return;
@@ -855,7 +840,8 @@ async fn handle_target(target: &str, config: &Config, history: &mut DownloadHist
     match result {
         Ok(_) => {
             let elapsed = start.elapsed().as_secs_f64();
-            history.add(target, None, target_type, None, &out_dir.display().to_string(), None, Some(elapsed));
+            let mut h = history.lock().await;
+            h.add(target, None, target_type, None, &out_dir.display().to_string(), None, Some(elapsed));
         }
         Err(e) => {
             banner::print_error(&e.to_string());
@@ -879,7 +865,27 @@ fn prompt(label: &str) -> String {
     buf.trim().to_string()
 }
 
-async fn start_webhook_server(queue: std::sync::Arc<tokio::sync::Mutex<DownloadQueue>>, config: Config) {
+fn http_response(status: &str, content_type: &str, body: &str) -> String {
+    format!(
+        "HTTP/1.1 {}\r\n\
+         Content-Type: {}\r\n\
+         Access-Control-Allow-Origin: *\r\n\
+         Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
+         Access-Control-Allow-Headers: Content-Type\r\n\
+         Content-Length: {}\r\n\
+         Connection: close\r\n\r\n{}",
+         status,
+         content_type,
+         body.len(),
+         body
+    )
+}
+
+async fn start_webhook_server(
+    queue: std::sync::Arc<tokio::sync::Mutex<DownloadQueue>>,
+    config: Config,
+    history: std::sync::Arc<tokio::sync::Mutex<DownloadHistory>>,
+) {
     let listener = match tokio::net::TcpListener::bind("127.0.0.1:8382").await {
         Ok(l) => l,
         Err(_) => {
@@ -891,21 +897,42 @@ async fn start_webhook_server(queue: std::sync::Arc<tokio::sync::Mutex<DownloadQ
         if let Ok((mut socket, _)) = listener.accept().await {
             let queue = queue.clone();
             let config = config.clone();
+            let history = history.clone();
             tokio::spawn(async move {
-                let mut buf = vec![0; 4096];
+                let mut buf = vec![0; 8192];
                 if let Ok(n) = tokio::io::AsyncReadExt::read(&mut socket, &mut buf).await {
                     let req = String::from_utf8_lossy(&buf[..n]);
-                    
-                    if req.starts_with("OPTIONS") {
-                        let response = "HTTP/1.1 204 No Content\r\n\
-                                        Access-Control-Allow-Origin: *\r\n\
-                                        Access-Control-Allow-Methods: POST, OPTIONS\r\n\
-                                        Access-Control-Allow-Headers: Content-Type\r\n\
-                                        Connection: close\r\n\r\n";
-                        let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, response.as_bytes()).await;
-                    } else if req.starts_with("POST /download") {
-                        if let Some(body_start) = req.find("\r\n\r\n") {
-                            let body = req[body_start + 4..].trim();
+                    let first_line = req.lines().next().unwrap_or("");
+                    let mut parts = first_line.split_whitespace();
+                    let method = parts.next().unwrap_or("");
+                    let path = parts.next().unwrap_or("");
+
+                    if method == "OPTIONS" {
+                        let resp = http_response("204 No Content", "text/plain", "");
+                        let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, resp.as_bytes()).await;
+                        return;
+                    }
+
+                    let body = if let Some(body_start) = req.find("\r\n\r\n") {
+                        req[body_start + 4..].trim()
+                    } else {
+                        ""
+                    };
+
+                    match (method, path) {
+                        ("GET", "/queue") => {
+                            let q = queue.lock().await;
+                            let resp_body = serde_json::to_string(&*q).unwrap_or_default();
+                            let resp = http_response("200 OK", "application/json", &resp_body);
+                            let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, resp.as_bytes()).await;
+                        }
+                        ("GET", "/history") => {
+                            let h = history.lock().await;
+                            let resp_body = serde_json::to_string(&*h).unwrap_or_default();
+                            let resp = http_response("200 OK", "application/json", &resp_body);
+                            let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, resp.as_bytes()).await;
+                        }
+                        ("POST", "/download") => {
                             if let Ok(json) = serde_json::from_str::<serde_json::Value>(body) {
                                 if let Some(url) = json["url"].as_str() {
                                     let target_type = if url.contains("youtube.com") || url.contains("youtu.be") {
@@ -915,52 +942,186 @@ async fn start_webhook_server(queue: std::sync::Arc<tokio::sync::Mutex<DownloadQ
                                     } else {
                                         "direct"
                                     };
-                                    
                                     let mut q = queue.lock().await;
                                     let id = q.add(url, target_type, Some(config.youtube.quality.clone()), &config.general.output_dir);
-                                    
                                     let resp_body = format!(r#"{{"status":"success","id":"{}","message":"Added to queue"}}"#, id);
-                                    let response = format!(
-                                        "HTTP/1.1 200 OK\r\n\
-                                         Content-Type: application/json\r\n\
-                                         Access-Control-Allow-Origin: *\r\n\
-                                         Content-Length: {}\r\n\
-                                         Connection: close\r\n\r\n{}",
-                                         resp_body.len(),
-                                         resp_body
-                                    );
-                                    let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, response.as_bytes()).await;
-                                    return;
+                                    let resp = http_response("200 OK", "application/json", &resp_body);
+                                    let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, resp.as_bytes()).await;
+                                } else {
+                                    let resp = http_response("400 Bad Request", "application/json", r#"{"status":"error","message":"Missing url"}"#);
+                                    let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, resp.as_bytes()).await;
                                 }
+                            } else {
+                                let resp = http_response("400 Bad Request", "application/json", r#"{"status":"error","message":"Invalid JSON"}"#);
+                                let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, resp.as_bytes()).await;
                             }
                         }
-                        
-                        let resp_body = r#"{"status":"error","message":"Invalid request body"}"#;
-                        let response = format!(
-                            "HTTP/1.1 400 Bad Request\r\n\
-                             Content-Type: application/json\r\n\
-                             Access-Control-Allow-Origin: *\r\n\
-                             Content-Length: {}\r\n\
-                             Connection: close\r\n\r\n{}",
-                             resp_body.len(),
-                             resp_body
-                        );
-                        let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, response.as_bytes()).await;
-                    } else {
-                        let resp_body = r#"{"status":"error","message":"Not Found"}"#;
-                        let response = format!(
-                            "HTTP/1.1 404 Not Found\r\n\
-                             Content-Type: application/json\r\n\
-                             Access-Control-Allow-Origin: *\r\n\
-                             Content-Length: {}\r\n\
-                             Connection: close\r\n\r\n{}",
-                             resp_body.len(),
-                             resp_body
-                        );
-                        let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, response.as_bytes()).await;
+                        ("POST", "/queue/pause") => {
+                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(body) {
+                                if let Some(id) = json["id"].as_str() {
+                                    let mut q = queue.lock().await;
+                                    q.pause(id);
+                                    let resp = http_response("200 OK", "application/json", r#"{"status":"success","message":"Paused"}"#);
+                                    let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, resp.as_bytes()).await;
+                                } else {
+                                    let resp = http_response("400 Bad Request", "application/json", r#"{"status":"error","message":"Missing id"}"#);
+                                    let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, resp.as_bytes()).await;
+                                }
+                            } else {
+                                let resp = http_response("400 Bad Request", "application/json", r#"{"status":"error","message":"Invalid JSON"}"#);
+                                let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, resp.as_bytes()).await;
+                            }
+                        }
+                        ("POST", "/queue/resume") => {
+                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(body) {
+                                if let Some(id) = json["id"].as_str() {
+                                    let mut q = queue.lock().await;
+                                    q.resume(id);
+                                    let resp = http_response("200 OK", "application/json", r#"{"status":"success","message":"Resumed"}"#);
+                                    let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, resp.as_bytes()).await;
+                                } else {
+                                    let resp = http_response("400 Bad Request", "application/json", r#"{"status":"error","message":"Missing id"}"#);
+                                    let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, resp.as_bytes()).await;
+                                }
+                            } else {
+                                let resp = http_response("400 Bad Request", "application/json", r#"{"status":"error","message":"Invalid JSON"}"#);
+                                let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, resp.as_bytes()).await;
+                            }
+                        }
+                        ("POST", "/queue/cancel") => {
+                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(body) {
+                                if let Some(id) = json["id"].as_str() {
+                                    let mut q = queue.lock().await;
+                                    q.cancel(id);
+                                    let resp = http_response("200 OK", "application/json", r#"{"status":"success","message":"Cancelled"}"#);
+                                    let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, resp.as_bytes()).await;
+                                } else {
+                                    let resp = http_response("400 Bad Request", "application/json", r#"{"status":"error","message":"Missing id"}"#);
+                                    let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, resp.as_bytes()).await;
+                                }
+                            } else {
+                                let resp = http_response("400 Bad Request", "application/json", r#"{"status":"error","message":"Invalid JSON"}"#);
+                                let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, resp.as_bytes()).await;
+                            }
+                        }
+                        ("POST", "/queue/clear") => {
+                            let mut q = queue.lock().await;
+                            q.clear_completed();
+                            let resp = http_response("200 OK", "application/json", r#"{"status":"success","message":"Cleared completed"}"#);
+                            let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, resp.as_bytes()).await;
+                        }
+                        _ => {
+                            let resp = http_response("404 Not Found", "application/json", r#"{"status":"error","message":"Not Found"}"#);
+                            let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, resp.as_bytes()).await;
+                        }
                     }
                 }
             });
+        }
+    }
+}
+
+async fn queue_worker_loop(
+    queue: std::sync::Arc<tokio::sync::Mutex<DownloadQueue>>,
+    config: Config,
+    history: std::sync::Arc<tokio::sync::Mutex<DownloadHistory>>,
+) {
+    loop {
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+        let mut q = queue.lock().await;
+        // Check if we can start any pending downloads
+        if q.active_count < q.max_parallel {
+            if let Some(pos) = q.items.iter().position(|item| item.status == queue::QueueStatus::Pending) {
+                // We found a pending item! Mark it downloading and start it in the background
+                q.items[pos].status = queue::QueueStatus::Downloading;
+                q.items[pos].started_at = Some(chrono::Utc::now().to_rfc3339());
+                q.active_count += 1;
+                let _ = q.save();
+
+                let item = q.items[pos].clone();
+                let queue_clone = queue.clone();
+                let config_clone = config.clone();
+                let history_clone = history.clone();
+
+                tokio::spawn(async move {
+                    let id = item.id.clone();
+                    let url = item.url.clone();
+                    let target_type = item.target_type.clone();
+                    let out_dir = std::path::PathBuf::from(&item.output_dir);
+
+                    // Progress reporting callback
+                    let q_cb = queue_clone.clone();
+                    let id_cb = id.clone();
+                    let last_pct = std::sync::Arc::new(tokio::sync::Mutex::new(0.0));
+                    let progress_cb = std::sync::Arc::new(move |pct: f64| {
+                        let last_pct_clone = last_pct.clone();
+                        let q_cb_clone = q_cb.clone();
+                        let id_cb_clone = id_cb.clone();
+                        // Spawn lock/update to not block download loop
+                        tokio::spawn(async move {
+                            let mut lp = last_pct_clone.lock().await;
+                            if (pct - *lp).abs() >= 1.0 || pct >= 100.0 {
+                                *lp = pct;
+                                let mut q = q_cb_clone.lock().await;
+                                if let Some(it) = q.items.iter_mut().find(|i| i.id == id_cb_clone) {
+                                    if it.status == queue::QueueStatus::Downloading {
+                                        it.progress = pct;
+                                        let _ = q.save();
+                                    }
+                                }
+                            }
+                        });
+                    });
+
+                    // Check if cancelled before starting
+                    {
+                        let q = queue_clone.lock().await;
+                        if let Some(it) = q.items.iter().find(|i| i.id == id) {
+                            if it.status != queue::QueueStatus::Downloading {
+                                return; // Item was cancelled or paused
+                            }
+                        }
+                    }
+
+                    // Run the actual download in background, silent = true
+                    let result = match target_type.as_str() {
+                        "youtube" => youtube::download_youtube(&url, &out_dir, &config_clone, Some(progress_cb), true).await.map(|_| ()),
+                        "torrent" => {
+                            let config_bt = config_clone.clone();
+                            let out_bt = out_dir.clone();
+                            let url_bt = url.clone();
+                            let progress_cb_bt = progress_cb.clone();
+                            tokio::task::spawn_blocking(move || {
+                                torrent::download_torrent(&url_bt, &out_bt, &config_bt, Some(progress_cb_bt), true)
+                            }).await.unwrap_or_else(|e| Err(anyhow::anyhow!("Spawn blocking failed: {}", e)))
+                        }
+                        "direct" => downloader::download_direct(&url, &out_dir, &config_clone, Some(progress_cb), true).await,
+                        _ => Err(anyhow::anyhow!("Unknown type")),
+                    };
+
+                    let mut q = queue_clone.lock().await;
+                    // Double check item status to see if it was cancelled
+                    let was_cancelled = if let Some(it) = q.items.iter().find(|i| i.id == id) {
+                        it.status != queue::QueueStatus::Downloading
+                    } else {
+                        true
+                    };
+
+                    if !was_cancelled {
+                        match result {
+                            Ok(_) => {
+                                q.complete(&id, &out_dir.display().to_string());
+                                let mut h = history_clone.lock().await;
+                                h.add(&url, None, &target_type, None, &out_dir.display().to_string(), None, None);
+                            }
+                            Err(e) => {
+                                q.fail(&id, &e.to_string());
+                            }
+                        }
+                    }
+                });
+            }
         }
     }
 }

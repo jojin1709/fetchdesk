@@ -512,6 +512,126 @@
       font-size: 0.85rem;
       font-weight: 500;
     }
+
+    /* Live Dashboard Styles */
+    .db-container {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      color: var(--text-main);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .db-input-group {
+      display: flex;
+      gap: 10px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-color);
+      padding: 8px 12px;
+      border-radius: var(--radius-md);
+    }
+    .db-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--text-main);
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 0.85rem;
+      outline: none;
+    }
+    .db-btn {
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+      color: #030712;
+      border: none;
+      padding: 6px 16px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .db-btn:hover {
+      opacity: 0.9;
+      transform: translateY(-0.5px);
+    }
+    .db-btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+    }
+    .db-section-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--accent-cyan);
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .db-item {
+      background: rgba(255, 255, 255, 0.01);
+      border: 1px solid var(--border-color);
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin-bottom: 8px;
+    }
+    .db-item-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .db-item-title {
+      font-weight: 600;
+      font-size: 0.82rem;
+      color: #cbd5e1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 320px;
+    }
+    .db-item-badge {
+      font-size: 0.65rem;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .badge-pending { background: rgba(251, 191, 36, 0.1); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.2); }
+    .badge-downloading { background: rgba(6, 182, 212, 0.1); color: #06b6d4; border: 1px solid rgba(6, 182, 212, 0.2); }
+    .badge-paused { background: rgba(59, 130, 246, 0.1); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.2); }
+    .badge-completed { background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); }
+    .badge-failed { background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); }
+    .db-item-actions {
+      display: flex;
+      gap: 6px;
+    }
+    .db-item-btn {
+      background: transparent;
+      border: 1px solid var(--border-color);
+      color: var(--text-muted);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .db-item-btn:hover {
+      color: var(--text-main);
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .db-history-list {
+      max-height: 120px;
+      overflow-y: auto;
+      font-size: 0.8rem;
+    }
+    .db-history-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+      color: #94a3b8;
+    }
   </style>
 </head>
 <body>
@@ -580,6 +700,10 @@
           <button class="terminal-tab" id="tab-switcher" onclick="switchTab('switcher')">
             <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
             Smart Switcher
+          </button>
+          <button class="terminal-tab" id="tab-dashboard" onclick="switchTab('dashboard')">
+            <svg viewBox="0 0 24 24"><path d="M12 2c5.52 0 10 4.48 10 10s-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2zm1 11h5v-2h-5V6h-2v5H6v2h5v5h2v-5z"/></svg>
+            Live Dashboard
           </button>
         </div>
         <div class="terminal-body" id="terminal-body">
@@ -841,8 +965,10 @@
     };
 
     let activeInterval = null;
+    let activeTab = 'http';
 
     function switchTab(tabId) {
+      activeTab = tabId;
       if (activeInterval) clearInterval(activeInterval);
 
       // Manage active classes
@@ -853,6 +979,32 @@
 
       const title = document.getElementById('terminal-title');
       const body = document.getElementById('terminal-body');
+
+      if (tabId === 'dashboard') {
+        title.textContent = "fetchdesk.exe — Live Dashboard Interface";
+        body.innerHTML = `
+          <div class="db-container">
+            <div class="db-input-group">
+              <input type="text" class="db-input" id="db-url-input" placeholder="Paste link (Direct URL, YouTube, Torrent) to download...">
+              <button class="db-btn" onclick="apiAddDownload()">Queue Download</button>
+            </div>
+            <div>
+              <div class="db-section-title">
+                <span>ACTIVE QUEUE</span>
+                <button class="db-btn db-btn-secondary" style="font-size:0.7rem; padding: 2px 8px;" onclick="apiClearQueue()">Clear Completed</button>
+              </div>
+              <div id="db-queue-list" style="max-height: 200px; overflow-y: auto;">Loading queue...</div>
+            </div>
+            <div>
+              <div class="db-section-title">COMPLETED HISTORY</div>
+              <div class="db-history-list" id="db-history-list">Loading history...</div>
+            </div>
+          </div>
+        `;
+        fetchQueueAndHistory();
+        activeInterval = setInterval(fetchQueueAndHistory, 1000);
+        return;
+      }
 
       title.textContent = terminalData[tabId].title;
       body.innerHTML = terminalData[tabId].content;
@@ -953,7 +1105,154 @@
       }
     }
 
-    // Bootstrap terminal
+    function fetchQueueAndHistory() {
+      fetch("http://127.0.0.1:8382/queue")
+        .then(res => res.json())
+        .then(data => {
+          renderQueueList(data.items);
+        })
+        .catch(err => {
+          const qList = document.getElementById("db-queue-list");
+          if (qList) {
+            qList.innerHTML = `<div style="color:var(--accent-purple); font-size:0.8rem;">→ Service Offline. Start FetchDesk CLI to enable live synchronization.</div>`;
+          }
+        });
+
+      fetch("http://127.0.0.1:8382/history")
+        .then(res => res.json())
+        .then(data => {
+          renderHistoryList(data.entries);
+        })
+        .catch(err => {
+          const histList = document.getElementById("db-history-list");
+          if (histList) {
+            histList.innerHTML = `<div style="color:var(--text-muted); font-size:0.8rem;">History unavailable.</div>`;
+          }
+        });
+    }
+
+    function renderQueueList(items) {
+      const listEl = document.getElementById("db-queue-list");
+      if (!listEl) return;
+      if (!items || items.length === 0) {
+        listEl.innerHTML = `<div style="color:var(--text-muted); font-size:0.8rem;">Queue is empty. Paste a link above to start downloading.</div>`;
+        return;
+      }
+
+      let html = "";
+      items.forEach(item => {
+        const badgeClass = `badge-${item.status.toLowerCase()}`;
+        const urlShort = item.url.length > 55 ? item.url.substring(0, 52) + "..." : item.url;
+        
+        let actionsHtml = "";
+        if (item.status === "Downloading" || item.status === "Pending") {
+          actionsHtml = `
+            <button class="db-item-btn" onclick="apiPauseDownload('${item.id}')">Pause</button>
+            <button class="db-item-btn" style="color:#ef4444;" onclick="apiCancelDownload('${item.id}')">Cancel</button>
+          `;
+        } else if (item.status === "Paused" || item.status === "Failed") {
+          actionsHtml = `
+            <button class="db-item-btn" onclick="apiResumeDownload('${item.id}')">Resume</button>
+            <button class="db-item-btn" style="color:#ef4444;" onclick="apiCancelDownload('${item.id}')">Cancel</button>
+          `;
+        }
+
+        html += `
+          <div class="db-item">
+            <div class="db-item-header">
+              <span class="db-item-title" title="${item.url}">${item.id} | ${urlShort}</span>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <span class="db-item-badge ${badgeClass}">${item.status}</span>
+                <div class="db-item-actions">${actionsHtml}</div>
+              </div>
+            </div>
+            <div class="progress-bar-wrap" style="margin: 4px 0 0 0;">
+              <div class="progress-fill" style="width: ${item.progress}%"></div>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:0.7rem; color:var(--text-muted); margin-top:2px;">
+              <span>Progress: ${item.progress.toFixed(1)}%</span>
+              <span>Type: ${item.target_type}</span>
+            </div>
+          </div>
+        `;
+      });
+      listEl.innerHTML = html;
+    }
+
+    function renderHistoryList(entries) {
+      const histEl = document.getElementById("db-history-list");
+      if (!histEl) return;
+      if (!entries || entries.length === 0) {
+        histEl.innerHTML = `<div style="color:var(--text-muted); font-size:0.8rem;">No download history found.</div>`;
+        return;
+      }
+
+      let html = "";
+      entries.slice(0, 10).forEach(entry => {
+        const urlShort = entry.url.length > 60 ? entry.url.substring(0, 57) + "..." : entry.url;
+        const timeStr = entry.downloaded_at.includes('T') ? entry.downloaded_at.split('T')[1].substring(0,5) : "";
+        html += `
+          <div class="db-history-item">
+            <span>${timeStr} | ${urlShort}</span>
+            <span style="color:var(--accent-green); font-weight:600; text-transform: uppercase;">${entry.target_type}</span>
+          </div>
+        `;
+      });
+      histEl.innerHTML = html;
+    }
+
+    function apiAddDownload() {
+      const input = document.getElementById("db-url-input");
+      if (!input) return;
+      const url = input.value.trim();
+      if (!url) return;
+
+      fetch("http://127.0.0.1:8382/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url })
+      })
+      .then(res => res.json())
+      .then(data => {
+        showToast("Download queued successfully!");
+        input.value = "";
+        fetchQueueAndHistory();
+      })
+      .catch(err => {
+        showToast("Error connecting to FetchDesk webhook.");
+      });
+    }
+
+    function apiPauseDownload(id) {
+      fetch("http://127.0.0.1:8382/queue/pause", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id })
+      }).then(() => fetchQueueAndHistory());
+    }
+
+    function apiResumeDownload(id) {
+      fetch("http://127.0.0.1:8382/queue/resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id })
+      }).then(() => fetchQueueAndHistory());
+    }
+
+    function apiCancelDownload(id) {
+      fetch("http://127.0.0.1:8382/queue/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id })
+      }).then(() => fetchQueueAndHistory());
+    }
+
+    function apiClearQueue() {
+      fetch("http://127.0.0.1:8382/queue/clear", {
+        method: "POST"
+      }).then(() => fetchQueueAndHistory());
+    }
+
     switchTab('http');
   </script>
 </body>

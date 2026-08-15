@@ -14,7 +14,13 @@ use crate::banner;
 use crate::config::Config;
 
 /// Download a direct HTTP(S) file with full features
-pub async fn download_direct(url: &str, out_dir: &PathBuf, config: &Config) -> Result<()> {
+pub async fn download_direct(
+    url: &str,
+    out_dir: &PathBuf,
+    config: &Config,
+    progress_callback: Option<Arc<dyn Fn(f64) + Send + Sync>>,
+    silent: bool,
+) -> Result<()> {
     let mut builder = reqwest::Client::builder()
         .user_agent(&config.network.user_agent)
         .connect_timeout(Duration::from_secs(30));
@@ -115,8 +121,13 @@ pub async fn download_direct(url: &str, out_dir: &PathBuf, config: &Config) -> R
         if let Some(size) = total_size {
             if let Ok(meta) = std::fs::metadata(&out_path) {
                 if meta.len() == size {
-                    banner::print_info("File already exists and size matches, skipping...");
-                    banner::print_success(&format!("Saved to: {}", out_path.display()));
+                    if !silent {
+                        banner::print_info("File already exists and size matches, skipping...");
+                        banner::print_success(&format!("Saved to: {}", out_path.display()));
+                    }
+                    if let Some(ref cb) = progress_callback {
+                        cb(100.0);
+                    }
                     return Ok(());
                 }
             }
@@ -124,18 +135,20 @@ pub async fn download_direct(url: &str, out_dir: &PathBuf, config: &Config) -> R
     }
 
     if config.download.dry_run {
-        banner::print_info("DRY RUN - would download:");
-        banner::print_info(&format!("URL: {}", url));
-        banner::print_info(&format!("Output: {}", out_path.display()));
-        if let Some(size) = total_size {
-            banner::print_info(&format!("Size: {}", human_size(size)));
+        if !silent {
+            banner::print_info("DRY RUN - would download:");
+            banner::print_info(&format!("URL: {}", url));
+            banner::print_info(&format!("Output: {}", out_path.display()));
+            if let Some(size) = total_size {
+                banner::print_info(&format!("Size: {}", human_size(size)));
+            }
         }
         return Ok(());
     }
 
     let out_path = if let Some(size) = total_size {
         let parent = out_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| out_dir.clone());
-        let new_parent = crate::disk::ensure_sufficient_space(&parent, size);
+        let new_parent = crate::disk::ensure_sufficient_space(&parent, size, silent);
         new_parent.join(&filename)
     } else {
         out_path
@@ -152,11 +165,13 @@ pub async fn download_direct(url: &str, out_dir: &PathBuf, config: &Config) -> R
                 let current = metadata.len();
                 let total = total_size.unwrap();
                 if current > 0 && current < total {
-                    banner::print_info(&format!(
-                        "Resuming from {} / {}",
-                        human_size(current),
-                        human_size(total)
-                    ));
+                    if !silent {
+                        banner::print_info(&format!(
+                            "Resuming from {} / {}",
+                            human_size(current),
+                            human_size(total)
+                        ));
+                    }
                     Some(current)
                 } else {
                     None
@@ -174,12 +189,14 @@ pub async fn download_direct(url: &str, out_dir: &PathBuf, config: &Config) -> R
     if supports_ranges && total_size.is_some() {
         let size = total_size.unwrap();
         let connections = config.download.max_connections.max(1);
-        banner::print_info(&format!(
-            "Downloading: {} ({}) using {} connections",
-            filename,
-            human_size(size),
-            connections
-        ));
+        if !silent {
+            banner::print_info(&format!(
+                "Downloading: {} ({}) using {} connections",
+                filename,
+                human_size(size),
+                connections
+            ));
+        }
         download_chunked(
             &client,
             url,
@@ -188,26 +205,60 @@ pub async fn download_direct(url: &str, out_dir: &PathBuf, config: &Config) -> R
             connections,
             config.download.bandwidth_limit_kbps,
             resume_from,
+            progress_callback,
+            silent,
         )
         .await?;
     } else {
-        banner::print_info(&format!("Downloading: {} (single stream)", filename));
+        if !silent {
+            banner::print_info(&format!("Downloading: {} (single stream)", filename));
+        }
         download_single(
             &client,
             url,
             &out_path,
             config.download.bandwidth_limit_kbps,
             resume_from,
+            progress_callback,
+            silent,
         )
         .await?;
     }
 
     // Hash verification
     if config.download.hash_verify && out_path.exists() {
-        verify_hash(&out_path)?;
+        if !silent {
+            verify_hash(&out_path)?;
+        }
     }
 
-    banner::print_success(&format!("Saved to: {}", out_path.display()));
+    // Extract archive if enabled
+    if config.download.auto_extract {
+        let ext = out_path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        if ext == "zip" {
+            if !silent {
+                banner::print_info(&format!("Extracting archive: {}", filename));
+            }
+            let extract_dir = out_path.parent().unwrap_or(&actual_out_dir);
+            if let Err(e) = extract_zip(&out_path, extract_dir) {
+                if !silent {
+                    banner::print_error(&format!("Extraction failed: {}", e));
+                }
+            } else {
+                if !silent {
+                    banner::print_success("Archive extracted successfully");
+                }
+            }
+        }
+    }
+
+    if !silent {
+        banner::print_success(&format!("Saved to: {}", out_path.display()));
+    }
     Ok(())
 }
 
@@ -219,6 +270,8 @@ async fn download_chunked(
     connections: usize,
     bandwidth_limit_kbps: Option<u64>,
     resume_from: Option<u64>,
+    progress_callback: Option<Arc<dyn Fn(f64) + Send + Sync>>,
+    silent: bool,
 ) -> Result<()> {
     let start_offset = resume_from.unwrap_or(0);
     let remaining = size.saturating_sub(start_offset);
@@ -246,13 +299,18 @@ async fn download_chunked(
     let conn_count = connections.min(remaining as usize).max(1);
     let chunk_size = remaining / conn_count as u64;
     
-    let pb = ProgressBar::new(remaining);
-    pb.set_style(
-        ProgressStyle::with_template(
-            "  {spinner:.green} [{bar:40.cyan/blue}] {percent}% | {bytes}/{total_bytes} | {speed} | ETA {eta}",
-        )?
-        .progress_chars("█▓░ "),
-    );
+    let pb = if silent {
+        ProgressBar::hidden()
+    } else {
+        let p = ProgressBar::new(remaining);
+        p.set_style(
+            ProgressStyle::with_template(
+                "  {spinner:.green} [{bar:40.cyan/blue}] {percent}% | {bytes}/{total_bytes} | {speed} | ETA {eta}",
+            )?
+            .progress_chars("█▓░ "),
+        );
+        p
+    };
 
     let mut handles = Vec::new();
 
@@ -273,6 +331,7 @@ async fn download_chunked(
         let url = url.to_string();
         let out_path = out_path.clone();
         let limit = bandwidth_limit_kbps.map(|k| k / conn_count as u64);
+        let progress_cb = progress_callback.clone();
 
         handles.push(tokio::spawn(async move {
             let req = client.get(&url).header(RANGE, format!("bytes={}-{}", start, end));
@@ -291,6 +350,12 @@ async fn download_chunked(
                 thread_file.write_all(&chunk)?;
                 offset += chunk.len() as u64;
                 pb_clone.inc(chunk.len() as u64);
+
+                if let Some(ref cb) = progress_cb {
+                    let total_downloaded = pb_clone.position();
+                    let pct = ((start_offset + total_downloaded) as f64 / size as f64) * 100.0;
+                    cb(pct.min(100.0).max(0.0));
+                }
 
                 // Bandwidth throttle
                 if let Some(limit_bps) = limit_bytes_per_sec {
@@ -319,6 +384,8 @@ async fn download_single(
     out_path: &PathBuf,
     bandwidth_limit_kbps: Option<u64>,
     resume_from: Option<u64>,
+    progress_callback: Option<Arc<dyn Fn(f64) + Send + Sync>>,
+    silent: bool,
 ) -> Result<()> {
     let mut req = client.get(url);
     if let Some(offset) = resume_from {
@@ -326,13 +393,19 @@ async fn download_single(
     }
     let resp = req.send().await?.error_for_status()?;
     let total = resp.content_length().unwrap_or(0);
-    let pb = ProgressBar::new(total);
-    pb.set_style(
-        ProgressStyle::with_template(
-            "  {spinner:.green} [{bar:40.cyan/blue}] {percent}% | {bytes}/{total_bytes} | {speed} | ETA {eta}",
-        )?
-        .progress_chars("█▓░ "),
-    );
+    
+    let pb = if silent {
+        ProgressBar::hidden()
+    } else {
+        let p = ProgressBar::new(total);
+        p.set_style(
+            ProgressStyle::with_template(
+                "  {spinner:.green} [{bar:40.cyan/blue}] {percent}% | {bytes}/{total_bytes} | {speed} | ETA {eta}",
+            )?
+            .progress_chars("█▓░ "),
+        );
+        p
+    };
 
     let mut file = if resume_from.is_some() {
         OpenOptions::new().write(true).open(out_path)?
@@ -348,10 +421,20 @@ async fn download_single(
     let mut bytes_since_limit_check = 0u64;
     let limit_bytes_per_sec = bandwidth_limit_kbps.map(|k| k * 1024);
 
+    let start_offset = resume_from.unwrap_or(0);
+    let total_file_size = total + start_offset;
+    let mut downloaded = start_offset;
+
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
         file.write_all(&chunk)?;
         pb.inc(chunk.len() as u64);
+        downloaded += chunk.len() as u64;
+
+        if let Some(ref cb) = progress_callback {
+            let pct = (downloaded as f64 / total_file_size as f64) * 100.0;
+            cb(pct.min(100.0).max(0.0));
+        }
 
         if let Some(limit_bps) = limit_bytes_per_sec {
             bytes_since_limit_check += chunk.len() as u64;
@@ -479,4 +562,31 @@ pub fn require_ok(cond: bool, msg: &str) -> Result<()> {
     } else {
         Err(anyhow!(msg.to_string()))
     }
+}
+
+fn extract_zip(file_path: &std::path::Path, target_dir: &std::path::Path) -> Result<()> {
+    let file = std::fs::File::open(file_path)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+    std::fs::create_dir_all(target_dir)?;
+
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)?;
+        let outpath = match file.enclosed_name() {
+            Some(path) => target_dir.join(path),
+            None => continue,
+        };
+
+        if file.name().ends_with('/') {
+            std::fs::create_dir_all(&outpath)?;
+        } else {
+            if let Some(p) = outpath.parent() {
+                if !p.exists() {
+                    std::fs::create_dir_all(p)?;
+                }
+            }
+            let mut outfile = std::fs::File::create(&outpath)?;
+            std::io::copy(&mut file, &mut outfile)?;
+        }
+    }
+    Ok(())
 }

@@ -99,6 +99,7 @@ impl DownloadQueue {
         id
     }
 
+    #[allow(dead_code)]
     pub fn start_next(&mut self) -> Option<&mut QueueItem> {
         if self.active_count >= self.max_parallel {
             return None;

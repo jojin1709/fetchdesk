@@ -3,6 +3,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use std::io::BufRead;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Arc;
 
 use crate::banner;
 use crate::config::Config;
@@ -162,7 +163,13 @@ pub async fn get_available_qualities(url: &str) -> Result<Vec<VideoFormat>> {
 }
 
 /// Download YouTube video using yt-dlp with anti-403 configuration and animated progress bar
-pub async fn download_youtube(url: &str, out_dir: &PathBuf, config: &Config) -> Result<()> {
+pub async fn download_youtube(
+    url: &str,
+    out_dir: &PathBuf,
+    config: &Config,
+    progress_callback: Option<Arc<dyn Fn(f64) + Send + Sync>>,
+    silent: bool,
+) -> Result<()> {
     let ytdlp_path = which("yt-dlp").ok_or_else(|| {
         anyhow!("yt-dlp not found. Install: pip install -U yt-dlp")
     })?;
@@ -250,23 +257,35 @@ pub async fn download_youtube(url: &str, out_dir: &PathBuf, config: &Config) -> 
     }
 
     if config.download.dry_run {
-        banner::print_info("DRY RUN - would download:");
-        banner::print_info(&format!("URL: {}", url));
-        banner::print_info(&format!("Quality: {}", quality));
-        banner::print_info(&format!("Output: {}", out_dir.display()));
+        if !silent {
+            banner::print_info("DRY RUN - would download:");
+            banner::print_info(&format!("URL: {}", url));
+            banner::print_info(&format!("Quality: {}", quality));
+            banner::print_info(&format!("Output: {}", out_dir.display()));
+        }
         return Ok(());
     }
 
-    banner::print_info("Downloading...");
+    if !silent {
+        banner::print_info("Downloading...");
+    }
 
-    run_ytdlp_with_progress(cmd)?;
+    run_ytdlp_with_progress(cmd, progress_callback, silent)?;
 
-    banner::print_success(&format!("Saved to: {}", out_dir.display()));
+    if !silent {
+        banner::print_success(&format!("Saved to: {}", out_dir.display()));
+    }
     Ok(())
 }
 
 /// Download YouTube playlist
-pub async fn download_playlist(url: &str, out_dir: &PathBuf, config: &Config) -> Result<()> {
+pub async fn download_playlist(
+    url: &str,
+    out_dir: &PathBuf,
+    config: &Config,
+    progress_callback: Option<Arc<dyn Fn(f64) + Send + Sync>>,
+    silent: bool,
+) -> Result<()> {
     let ytdlp_path = which("yt-dlp").ok_or_else(|| {
         anyhow!("yt-dlp not found. Install: pip install -U yt-dlp")
     })?;
@@ -343,20 +362,30 @@ pub async fn download_playlist(url: &str, out_dir: &PathBuf, config: &Config) ->
     }
 
     if config.download.dry_run {
-        banner::print_info("DRY RUN - would download playlist:");
-        banner::print_info(&format!("URL: {}", url));
+        if !silent {
+            banner::print_info("DRY RUN - would download playlist:");
+            banner::print_info(&format!("URL: {}", url));
+        }
         return Ok(());
     }
 
-    banner::print_info("Downloading playlist...");
+    if !silent {
+        banner::print_info("Downloading playlist...");
+    }
 
-    run_ytdlp_with_progress(cmd)?;
+    run_ytdlp_with_progress(cmd, progress_callback, silent)?;
 
-    banner::print_success(&format!("Playlist saved to: {}", out_dir.display()));
+    if !silent {
+        banner::print_success(&format!("Playlist saved to: {}", out_dir.display()));
+    }
     Ok(())
 }
 
-fn run_ytdlp_with_progress(mut cmd: Command) -> Result<()> {
+fn run_ytdlp_with_progress(
+    mut cmd: Command,
+    progress_callback: Option<Arc<dyn Fn(f64) + Send + Sync>>,
+    silent: bool,
+) -> Result<()> {
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
@@ -364,15 +393,21 @@ fn run_ytdlp_with_progress(mut cmd: Command) -> Result<()> {
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
 
-    let pb = ProgressBar::new(1000);
-    pb.set_style(
-        ProgressStyle::with_template(
-            "  {spinner:.green} [{bar:40.cyan/blue}] {percent}% | {msg}",
-        )?
-        .progress_chars("█▓░ "),
-    );
+    let pb = if silent {
+        ProgressBar::hidden()
+    } else {
+        let p = ProgressBar::new(1000);
+        p.set_style(
+            ProgressStyle::with_template(
+                "  {spinner:.green} [{bar:40.cyan/blue}] {percent}% | {msg}",
+            )?
+            .progress_chars("█▓░ "),
+        );
+        p
+    };
 
     let pb_clone = pb.clone();
+    let progress_cb = progress_callback.clone();
     let stdout_handle = std::thread::spawn(move || {
         let reader = std::io::BufReader::new(stdout);
         for line in reader.lines().flatten() {
@@ -381,6 +416,9 @@ fn run_ytdlp_with_progress(mut cmd: Command) -> Result<()> {
                     let start = line[..pct_idx].rfind(char::is_whitespace).map(|i| i + 1).unwrap_or(0);
                     if let Ok(pct) = line[start..pct_idx].trim().parse::<f64>() {
                         pb_clone.set_position((pct * 10.0) as u64);
+                        if let Some(ref cb) = progress_cb {
+                            cb(pct);
+                        }
                     }
                 }
                 if let Some(at_idx) = line.find(" at ") {

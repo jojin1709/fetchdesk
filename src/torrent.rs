@@ -3,6 +3,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use std::io::BufRead;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Arc;
 
 use crate::banner;
 use crate::config::Config;
@@ -28,7 +29,13 @@ fn resolve_aria2c() -> Result<PathBuf> {
 }
 
 /// Download torrent/magnet with full options and sleek animated progress bar
-pub fn download_torrent(target: &str, out_dir: &PathBuf, config: &Config) -> Result<()> {
+pub fn download_torrent(
+    target: &str,
+    out_dir: &PathBuf,
+    config: &Config,
+    progress_callback: Option<Arc<dyn Fn(f64) + Send + Sync>>,
+    silent: bool,
+) -> Result<()> {
     let aria2c_path = resolve_aria2c()?;
 
     std::fs::create_dir_all(out_dir)?;
@@ -83,21 +90,31 @@ pub fn download_torrent(target: &str, out_dir: &PathBuf, config: &Config) -> Res
 
     // Dry run
     if config.download.dry_run {
-        banner::print_info("DRY RUN - would download torrent:");
-        banner::print_info(&format!("Target: {}", target));
-        banner::print_info(&format!("Output: {}", out_dir.display()));
+        if !silent {
+            banner::print_info("DRY RUN - would download torrent:");
+            banner::print_info(&format!("Target: {}", target));
+            banner::print_info(&format!("Output: {}", out_dir.display()));
+        }
         return Ok(());
     }
 
-    banner::print_info("Connecting to BitTorrent network...");
+    if !silent {
+        banner::print_info("Connecting to BitTorrent network...");
+    }
 
-    run_aria2c_with_progress(cmd)?;
+    run_aria2c_with_progress(cmd, progress_callback, silent)?;
 
-    banner::print_success(&format!("Saved to: {}", out_dir.display()));
+    if !silent {
+        banner::print_success(&format!("Saved to: {}", out_dir.display()));
+    }
     Ok(())
 }
 
-fn run_aria2c_with_progress(mut cmd: Command) -> Result<()> {
+fn run_aria2c_with_progress(
+    mut cmd: Command,
+    progress_callback: Option<Arc<dyn Fn(f64) + Send + Sync>>,
+    silent: bool,
+) -> Result<()> {
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
@@ -105,38 +122,53 @@ fn run_aria2c_with_progress(mut cmd: Command) -> Result<()> {
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
 
-    let pb = ProgressBar::new(1000);
-    pb.set_style(
-        ProgressStyle::with_template(
-            "  {spinner:.green} [{bar:40.cyan/blue}] {percent}% | {msg}",
-        )?
-        .progress_chars("█▓░ "),
-    );
+    let pb = if silent {
+        ProgressBar::hidden()
+    } else {
+        let p = ProgressBar::new(1000);
+        p.set_style(
+            ProgressStyle::with_template(
+                "  {spinner:.green} [{bar:40.cyan/blue}] {percent}% | {msg}",
+            )?
+            .progress_chars("█▓░ "),
+        );
+        p
+    };
 
     let pb_clone = pb.clone();
+    let progress_cb = progress_callback.clone();
     let stdout_handle = std::thread::spawn(move || {
         let reader = std::io::BufReader::new(stdout);
         for line in reader.lines().flatten() {
             if line.contains("[METADATA]") || line.contains("METADATA") {
-                pb_clone.set_message("Resolving torrent metadata & searching peers...".to_string());
+                if !silent {
+                    pb_clone.set_message("Resolving torrent metadata & searching peers...".to_string());
+                }
             } else if line.contains('[') && line.contains(']') && line.contains('%') {
                 if let Some(pct_start) = line.find('(') {
                     if let Some(pct_end) = line[pct_start..].find("%)") {
                         let pct_str = &line[pct_start + 1..pct_start + pct_end];
                         if let Ok(pct) = pct_str.parse::<f64>() {
                             pb_clone.set_position((pct * 10.0) as u64);
+                            if let Some(ref cb) = progress_cb {
+                                cb(pct);
+                            }
                         }
                     }
                 }
                 let clean_line = line.trim();
-                if let Some(start_idx) = clean_line.find('[') {
-                    if let Some(end_idx) = clean_line.rfind(']') {
-                        let msg = &clean_line[start_idx + 1..end_idx];
-                        pb_clone.set_message(msg.to_string());
+                if !silent {
+                    if let Some(start_idx) = clean_line.find('[') {
+                        if let Some(end_idx) = clean_line.rfind(']') {
+                            let msg = &clean_line[start_idx + 1..end_idx];
+                            pb_clone.set_message(msg.to_string());
+                        }
                     }
                 }
             } else if line.contains("DL:") || line.contains("CN:") {
-                pb_clone.set_message(line.trim().to_string());
+                if !silent {
+                    pb_clone.set_message(line.trim().to_string());
+                }
             }
         }
     });

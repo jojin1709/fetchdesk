@@ -41,7 +41,24 @@ pub fn get_path_free_space(path: &Path) -> Option<u64> {
 }
 
 #[cfg(not(windows))]
-pub fn get_path_free_space(_path: &Path) -> Option<u64> {
+pub fn get_path_free_space(path: &Path) -> Option<u64> {
+    let output = std::process::Command::new("df")
+        .arg("-Pk")
+        .arg(path)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut lines = stdout.lines();
+    lines.next(); // Skip header line
+    let data_line = lines.next()?;
+    let parts: Vec<&str> = data_line.split_whitespace().collect();
+    if parts.len() >= 4 {
+        let kb: u64 = parts[3].parse().ok()?;
+        return Some(kb * 1024); // Convert to bytes
+    }
     None
 }
 
@@ -62,13 +79,37 @@ pub fn get_available_drives() -> Vec<(String, u64)> {
 
 #[cfg(not(windows))]
 pub fn get_available_drives() -> Vec<(String, u64)> {
-    Vec::new()
+    let mut mounts = Vec::new();
+    let paths_to_check = if cfg!(target_os = "macos") {
+        vec!["/", "/Volumes"]
+    } else {
+        vec!["/", "/media", "/mnt"]
+    };
+
+    for path_str in paths_to_check {
+        let path = Path::new(path_str);
+        if path.exists() {
+            if path_str == "/Volumes" || path_str == "/media" || path_str == "/mnt" {
+                if let Ok(entries) = std::fs::read_dir(path) {
+                    for entry in entries.flatten() {
+                        let p = entry.path();
+                        if let Some(free) = get_path_free_space(&p) {
+                            mounts.push((p.to_string_lossy().to_string(), free));
+                        }
+                    }
+                }
+            } else if let Some(free) = get_path_free_space(path) {
+                mounts.push((path_str.to_string(), free));
+            }
+        }
+    }
+    mounts
 }
 
 /// Checks if out_dir has enough free space for required_bytes.
 /// If not, prompts the user to select another drive with enough space.
 /// Returns the chosen output directory PathBuf.
-pub fn ensure_sufficient_space(out_dir: &PathBuf, required_bytes: u64) -> PathBuf {
+pub fn ensure_sufficient_space(out_dir: &PathBuf, required_bytes: u64, silent: bool) -> PathBuf {
     let current_free = get_path_free_space(out_dir);
 
     if let Some(free) = current_free {
@@ -83,12 +124,14 @@ pub fn ensure_sufficient_space(out_dir: &PathBuf, required_bytes: u64) -> PathBu
             .map(|c| c.as_os_str().to_string_lossy().to_string())
             .unwrap_or_else(|| "current drive".to_string());
 
-        banner::print_warning(&format!(
-            "Insufficient space on {} (Available: {}, Required: {})",
-            curr_drive,
-            human_size(free),
-            human_size(required_bytes)
-        ));
+        if !silent {
+            banner::print_warning(&format!(
+                "Insufficient space on {} (Available: {}, Required: {})",
+                curr_drive,
+                human_size(free),
+                human_size(required_bytes)
+            ));
+        }
 
         let available_drives = get_available_drives();
         let suitable_drives: Vec<(String, u64)> = available_drives
@@ -97,8 +140,18 @@ pub fn ensure_sufficient_space(out_dir: &PathBuf, required_bytes: u64) -> PathBu
             .collect();
 
         if suitable_drives.is_empty() {
-            banner::print_error("No available drives have enough free space for this download!");
+            if !silent {
+                banner::print_error("No available drives have enough free space for this download!");
+            }
             return out_dir.clone();
+        }
+
+        if silent {
+            // Automatically pick recommended drive
+            let chosen_drive = &suitable_drives[0].0;
+            let new_dir = PathBuf::from(chosen_drive).join("Downloads");
+            std::fs::create_dir_all(&new_dir).ok();
+            return new_dir;
         }
 
         println!();
